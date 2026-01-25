@@ -18,19 +18,17 @@ class BookListScreen extends StatelessWidget {
         final bibleProvider =
             Provider.of<BibleProvider>(context, listen: false);
 
-        return Scaffold(
-          backgroundColor: Colors.black,
-          body: Consumer<BibleProvider>(
-            builder: (context, bibleProvider, _) {
-              if (bibleProvider.isLoadingBooks) {
-                return const Center(child: CircularProgressIndicator());
-              }
+        return Consumer<BibleProvider>(
+          builder: (context, bibleProvider, _) {
+            if (bibleProvider.isLoadingBooks) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-              if (bibleProvider.filteredBooks.isEmpty) {
-                return const Center(child: Text('No books available'));
-              }
+            if (bibleProvider.filteredBooks.isEmpty) {
+              return const Center(child: Text('No books available'));
+            }
 
-              return ListView.builder(
+            return ListView.builder(
                 itemCount: bibleProvider.filteredBooks.length,
                 itemBuilder: (context, index) {
                   final book = bibleProvider.filteredBooks[index];
@@ -160,9 +158,8 @@ class BookListScreen extends StatelessWidget {
                 },
               );
             },
-          ),
-        );
-      },
-    );
+          );
+        },
+      );
   }
 }

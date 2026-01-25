@@ -214,7 +214,7 @@ func GetBiblePassage(apiKey string, esvKey string) gin.HandlerFunc {
 		}
 
 		// Non-ESV (scripture.api.bible)
-		url := fmt.Sprintf("https://api.scripture.api.bible/v1/bibles/%s/chapters/%s?content-type=json", translationId, reference)
+		url := fmt.Sprintf("https://api.scripture.api.bible/v1/bibles/%s/chapters/%s?content-type=json&include-notes=false&include-titles=false&include-chapter-numbers=false&include-verse-numbers=true", translationId, reference)
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("api-key", apiKey)
 

@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -29,7 +29,7 @@ class FriendProvider with ChangeNotifier {
             context,
           );
         } catch (e, stack) {
-          FirebaseCrashlytics.instance.recordError(e, stack);
+          debugPrint('🔥 Error: $e\n$stack');
         }
       }
     }));
@@ -76,7 +76,7 @@ class FriendProvider with ChangeNotifier {
         friends = [];
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       friends = [];
     } finally {
       isLoading = false;
@@ -125,7 +125,7 @@ class FriendProvider with ChangeNotifier {
         suggestedFriends = [];
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       suggestedFriends = [];
     } finally {
       isLoading = false;

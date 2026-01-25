@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:TheWord/models/church.dart';
 import 'package:TheWord/models/small_group.dart';
@@ -27,7 +27,7 @@ class ChurchService {
         throw Exception('Failed to load churches: ${response.statusCode}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -50,7 +50,7 @@ class ChurchService {
             'Failed to load church details: ${response.statusCode}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -82,7 +82,7 @@ class ChurchService {
         throw Exception('Failed to load group details: ${response.statusCode}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -101,7 +101,7 @@ class ChurchService {
         throw Exception('Failed to join church: ${response.body}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -120,7 +120,7 @@ class ChurchService {
         throw Exception('Failed to leave church: ${response.body}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -158,7 +158,7 @@ class ChurchService {
         throw Exception('Failed to create post: ${response.body}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -191,7 +191,7 @@ class ChurchService {
         throw Exception('Failed to create event: ${response.body}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -224,7 +224,7 @@ class ChurchService {
         throw Exception('Failed to create group: ${response.body}');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }

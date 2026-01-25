@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -62,7 +62,7 @@ class GroupProvider with ChangeNotifier {
         return null;
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return null;
     } finally {
       _setLoading(false);
@@ -95,7 +95,7 @@ class GroupProvider with ChangeNotifier {
         return [];
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return [];
     } finally {
       _setLoading(false);
@@ -126,7 +126,7 @@ class GroupProvider with ChangeNotifier {
         return [];
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return [];
     } finally {
       _setLoading(false);
@@ -159,7 +159,7 @@ class GroupProvider with ChangeNotifier {
         return [];
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return [];
     } finally {
       _setLoading(false);
@@ -191,7 +191,7 @@ class GroupProvider with ChangeNotifier {
         return [];
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return [];
     } finally {
       _setLoading(false);
@@ -220,7 +220,7 @@ class GroupProvider with ChangeNotifier {
         return false;
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return false;
     } finally {
       _setLoading(false);
@@ -253,7 +253,7 @@ class GroupProvider with ChangeNotifier {
         return false;
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return false;
     } finally {
       _setLoading(false);
@@ -301,7 +301,7 @@ class GroupProvider with ChangeNotifier {
         return null;
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
       return null;
     } finally {
       _setLoading(false);
@@ -344,7 +344,7 @@ class GroupProvider with ChangeNotifier {
         throw Exception('Failed to create message');
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
     } finally {
       _setLoading(false);
       notifyListeners();
@@ -386,7 +386,7 @@ class GroupProvider with ChangeNotifier {
         throw Exception('Failed to create event');
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
     } finally {
       _setLoading(false);
       notifyListeners();
@@ -419,7 +419,7 @@ class GroupProvider with ChangeNotifier {
         throw Exception('Failed to submit prayer request');
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
     } finally {
       _setLoading(false);
       notifyListeners();

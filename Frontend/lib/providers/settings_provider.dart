@@ -1,5 +1,4 @@
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -28,6 +27,20 @@ class SettingsProvider with ChangeNotifier {
   String? get email => _email;
   String? get avatarUrl => _avatarUrl;
   bool loading = false;
+
+  // Gemini API settings
+  String? _geminiApiKey;
+  String _geminiModel = 'gemini-2.5-flash';
+
+  String? get geminiApiKey => _geminiApiKey;
+  String get geminiModel => _geminiModel;
+
+  static const List<String> availableGeminiModels = [
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-3-flash-preview',
+    'gemini-3-pro-preview',
+  ];
 
   List<dynamic> _translations = [];
 
@@ -90,6 +103,10 @@ class SettingsProvider with ChangeNotifier {
     _currentTranslationId = translation['id'];
     _currentTranslationName = translation['name'];
 
+    // Load Gemini settings
+    _geminiApiKey = prefs.getString('geminiApiKey');
+    _geminiModel = prefs.getString('geminiModel') ?? 'gemini-2.5-flash';
+
     final token = prefs.getString('token');
     final tokenExpiry = prefs.getInt('tokenExpiry') ?? 0;
     if (token != null && token.isNotEmpty) {
@@ -100,7 +117,7 @@ class SettingsProvider with ChangeNotifier {
         try {
           await fetchUserSettingsFromBackend(token);
         } catch (err, stack) {
-          FirebaseCrashlytics.instance.recordError(err, stack);
+          debugPrint('🔥 Error: $err\n$stack');
           logout();
         }
       }
@@ -259,6 +276,24 @@ class SettingsProvider with ChangeNotifier {
 
   void togglePublicProfile(value) {
     _isPublicProfile = value;
+    notifyListeners();
+  }
+
+  Future<void> updateGeminiApiKey(String? apiKey) async {
+    _geminiApiKey = apiKey;
+    final prefs = await SharedPreferences.getInstance();
+    if (apiKey != null && apiKey.isNotEmpty) {
+      await prefs.setString('geminiApiKey', apiKey);
+    } else {
+      await prefs.remove('geminiApiKey');
+    }
+    notifyListeners();
+  }
+
+  Future<void> updateGeminiModel(String model) async {
+    _geminiModel = model;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('geminiModel', model);
     notifyListeners();
   }
 

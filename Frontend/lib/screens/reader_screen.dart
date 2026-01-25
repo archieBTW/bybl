@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:TheWord/screens/main_app.dart';
-import 'package:TheWord/screens/saved_verses.dart';
+import 'package:TheWord/screens/settings_screen.dart';
 import 'package:TheWord/shared/widgets/highlight_text.dart';
+import 'package:TheWord/shared/widgets/api_key_setup_prompt.dart';
+import 'package:TheWord/services/local_storage_service.dart';
+import 'package:TheWord/models/local_bookmark.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -14,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/settings_provider.dart';
 import '../services/chat_service.dart';
+import '../shared/widgets/ai_disclaimer.dart';
 
 class ReaderScreen extends StatefulWidget {
   String chapterId;
@@ -46,6 +50,7 @@ class ReaderScreenState extends State<ReaderScreen> {
   late PageController _pageController;
 
   Map<String, List<Map<String, dynamic>>> _chapterContents = {};
+  Map<String, String?> _chapterCopyrights = {};
 
   bool isLoading = true;
   bool isSummaryLoading = false;
@@ -63,8 +68,6 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   ChatService chatService = ChatService();
 
-  bool savedVersesActive = false;
-
   final GlobalKey<SelectableTextHighlightState> highlightKey =
       GlobalKey<SelectableTextHighlightState>();
 
@@ -76,8 +79,11 @@ class ReaderScreenState extends State<ReaderScreen> {
     print('init------------------');
     chapterName = widget.chapterName;
 
+    final initialIndex = widget.chapterIds.indexOf(widget.chapterId);
+    currentPageIndex = initialIndex >= 0 ? initialIndex : 0;
+
     _pageController = PageController(
-      initialPage: widget.chapterIds.indexOf(widget.chapterId),
+      initialPage: currentPageIndex,
     );
 
     _fetchChapterContent(widget.chapterId);
@@ -137,6 +143,10 @@ class ReaderScreenState extends State<ReaderScreen> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final rawContent = data['data']['content'];
+        
+        // Extract copyright information from the API response
+        final copyright = data['data']['copyright'] as String?;
+        _chapterCopyrights[chapterId] = copyright;
 
         if (rawContent is! List) {
           _chapterContents[chapterId] = [];
@@ -154,9 +164,11 @@ class ReaderScreenState extends State<ReaderScreen> {
         }
       } else {
         _chapterContents[chapterId] = [];
+        _chapterCopyrights[chapterId] = null;
       }
     } catch (e, stack) {
       _chapterContents[chapterId] = [];
+      _chapterCopyrights[chapterId] = null;
     } finally {
       if (showLoading && chapterId == widget.chapterId) {
         setState(() => isLoading = false);
@@ -482,6 +494,32 @@ class ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _summarizeContent() {
+    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
+    final hasApiKey = settingsProvider.geminiApiKey != null && 
+                      settingsProvider.geminiApiKey!.isNotEmpty;
+
+    // Check for API key first
+    if (!hasApiKey) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('API Key Required'),
+          content: SingleChildScrollView(
+            child: ApiKeySetupPrompt(
+              onGoToSettings: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     final selectedTexts = highlightKey.currentState?.getSelectedTexts() ?? [];
 
     final contentToSummarize = selectedTexts.isNotEmpty
@@ -496,7 +534,10 @@ class ReaderScreenState extends State<ReaderScreen> {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
-        pageBuilder: (_, __, ___) => StreamedSummaryModal(prompt: prompt),
+        pageBuilder: (_, __, ___) => StreamedSummaryModal(
+          prompt: prompt,
+          title: 'Summary of $chapterName',
+        ),
       ),
     );
   }
@@ -510,9 +551,7 @@ class ReaderScreenState extends State<ReaderScreen> {
     return WillPopScope(
       onWillPop: () async => false,
       child: Scaffold(
-        appBar: savedVersesActive
-            ? null
-            : AppBar(
+        appBar: AppBar(
                 automaticallyImplyLeading: false,
                 leading: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
@@ -535,32 +574,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                       ? Colors.white
                       : Colors.black,
                 ),
-                actions: savedVersesActive
-                    ? [
-                        Expanded(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            children: [
-                              IconButton(
-                                iconSize: 24,
-                                padding: const EdgeInsets.only(left: 12),
-                                icon: const Icon(Icons.close),
-                                onPressed: () {
-                                  setState(() => savedVersesActive = false);
-                                  final currentIndex = widget.chapterIds
-                                      .indexOf(widget.chapterId);
-                                  if (_pageController.hasClients &&
-                                      currentIndex !=
-                                          _pageController.page?.round()) {
-                                    _pageController.jumpToPage(currentIndex);
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        )
-                      ]
-                    : [
+                actions: [
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.only(left: 14.0),
@@ -633,18 +647,19 @@ class ReaderScreenState extends State<ReaderScreen> {
                     itemBuilder: (context, index) {
                       final chapterId = widget.chapterIds[index];
                       final verses = _chapterContents[chapterId] ?? [];
+                      final copyright = _chapterCopyrights[chapterId];
                       final isCurrent = chapterId == widget.chapterId;
                       if (verses.isEmpty) {
                         return const Center(child: CircularProgressIndicator());
                       }
 
                       return SelectableTextHighlight(
-                        loggedIn: settingsProvider.isLoggedIn,
                         key: isCurrent ? highlightKey : null,
                         chapterId: chapterId,
                         bookName: widget.bookName,
                         translationId: widget.translationId,
                         verses: verses,
+                        copyright: copyright,
                         style:
                             theme.textTheme.bodyMedium!.copyWith(fontSize: 20),
                         currentVerseIndex: (chapterId == widget.chapterId)
@@ -675,47 +690,6 @@ class ReaderScreenState extends State<ReaderScreen> {
               ],
             ),
 
-            // Overlay: Saved Verses (only when active)
-            if (savedVersesActive)
-              Positioned.fill(
-                child: Material(
-                  color:
-                      Colors.black.withOpacity(0.8), // Optional: dim background
-                  child: Column(
-                    children: [
-                      AppBar(
-                        backgroundColor:
-                            Theme.of(context).scaffoldBackgroundColor,
-                        leading: Row(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          children: [
-                            // IconButton(
-                            //   iconSize: 24,
-                            //   padding: const EdgeInsets.only(left: 12),
-                            //   icon: const Icon(Icons.close),
-                            //   onPressed: () {
-                            //     setState(() => savedVersesActive = false);
-                            //     final currentIndex =
-                            //         widget.chapterIds.indexOf(widget.chapterId);
-                            //     if (_pageController.hasClients &&
-                            //         currentIndex !=
-                            //             _pageController.page?.round()) {
-                            //       _pageController.jumpToPage(currentIndex);
-                            //     }
-                            //   },
-                            // ),
-                          ],
-                        ),
-                        automaticallyImplyLeading: false,
-                        title: const Text("Saved Verses"),
-                        actions: [],
-                      ),
-                      Expanded(child: SavedVersesScreen()),
-                    ],
-                  ),
-                ),
-              ),
-
             if (isSummaryLoading)
               Container(
                 color: Colors.black54,
@@ -725,59 +699,38 @@ class ReaderScreenState extends State<ReaderScreen> {
               ),
           ],
         ),
-        bottomNavigationBar: !savedVersesActive
-            ? BottomAppBar(
+        bottomNavigationBar: BottomAppBar(
                 color: theme.scaffoldBackgroundColor,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: <Widget>[
-                    // Saved Verses
+                    // Bookmark
                     Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        if (settingsProvider.isLoggedIn)
-                          IconButton(
-                            icon: const Icon(Icons.bookmark_add),
-                            onPressed: () async {
-                              final prefs =
-                                  await SharedPreferences.getInstance();
-                              final token = prefs.getString('token');
-                              final settingsProvider =
-                                  Provider.of<SettingsProvider>(context,
-                                      listen: false);
-                              final response = await http.post(
-                                Uri.parse('https://api.bybl.dev/api/bookmarks'),
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                  'Authorization': 'Bearer ${token}',
-                                },
-                                body: json.encode({
-                                  "chapter_id": widget.chapterId,
-                                  "book_name": widget.bookName,
-                                  "chapter_name": chapterName,
-                                  "translation_name": widget.translationName,
-                                  "translation_id": widget.translationId,
-                                  "book_id": widget.bookId
-                                }),
+                        IconButton(
+                          icon: const Icon(Icons.bookmark_add),
+                          onPressed: () async {
+                            final bookmark = LocalBookmark.create(
+                              chapterId: widget.chapterId,
+                              bookName: widget.bookName,
+                              chapterName: chapterName,
+                              translationName: widget.translationName,
+                              translationId: widget.translationId,
+                              bookId: widget.bookId,
+                            );
+                            
+                            await LocalStorageService.saveBookmark(bookmark);
+                            
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Bookmark saved')),
                               );
-
-                              if (response.statusCode == 200) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('Bookmark saved')),
-                                );
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('Failed to save bookmark')),
-                                );
-                              }
-                            },
-                            tooltip: 'Bookmark',
-                          ),
-                        if (settingsProvider.isLoggedIn)
-                          const Text('Bookmark',
-                              style: TextStyle(fontSize: 12)),
+                            }
+                          },
+                          tooltip: 'Bookmark',
+                        ),
+                        const Text('Bookmark', style: TextStyle(fontSize: 12)),
                       ],
                     ),
 
@@ -805,21 +758,17 @@ class ReaderScreenState extends State<ReaderScreen> {
                     Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (settingsProvider.isLoggedIn)
-                          IconButton(
-                            icon: const Icon(Icons.summarize),
-                            onPressed: _summarizeContent,
-                            tooltip: 'Summarize',
-                          ),
-                        if (settingsProvider.isLoggedIn)
-                          const Text('Summarize',
-                              style: TextStyle(fontSize: 12)),
+                        IconButton(
+                          icon: const Icon(Icons.summarize),
+                          onPressed: _summarizeContent,
+                          tooltip: 'Summarize',
+                        ),
+                        const Text('Summarize', style: TextStyle(fontSize: 12)),
                       ],
                     ),
                   ],
                 ),
-              )
-            : null,
+              ),
       ),
     );
   }
@@ -852,47 +801,48 @@ class SummaryModal extends StatelessWidget {
 
 class StreamedSummaryModal extends StatefulWidget {
   final String prompt;
+  final String? title;
 
-  const StreamedSummaryModal({super.key, required this.prompt});
+  const StreamedSummaryModal({super.key, required this.prompt, this.title});
 
   @override
   State<StreamedSummaryModal> createState() => _StreamedSummaryModalState();
 }
 
 class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
-  final StringBuffer _buffer = StringBuffer();
-  late final StreamController<String> _controller;
+  final List<Map<String, String>> _messages = [];
+  final TextEditingController _textController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   late final ChatService _chatService;
   StreamSubscription<String>? _subscription;
   bool _isStreaming = true;
+  bool _hasAskedFollowUp = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = StreamController<String>.broadcast();
     _chatService = ChatService();
-
-    _subscription = _chatService.streamResponse(widget.prompt).listen(
+    
+    // Initial summary message
+    _messages.add({'role': 'assistant', 'content': ''});
+    
+    _subscription = _chatService.streamResponse(widget.prompt, useHistory: false).listen(
       (chunk) {
-        if (mounted) {
-          setState(() => _isStreaming = false);
-        }
-        _buffer.write(chunk);
-        if (!_controller.isClosed) {
-          _controller.add(_buffer.toString());
-        }
+        setState(() {
+          final lastMsg = _messages.last;
+          lastMsg['content'] = (lastMsg['content'] ?? '') + chunk;
+        });
+        _scrollToBottom();
       },
       onDone: () {
-        if (!_controller.isClosed) {
-          _controller.add(_buffer.toString()); // 💥 force rebuild
-        }
-
-        _controller.close();
+        setState(() => _isStreaming = false);
       },
       onError: (e) {
-        if (!_controller.isClosed) {
-          _controller.add("Error: $e");
-        }
+        setState(() {
+          _isStreaming = false;
+          final lastMsg = _messages.last;
+          lastMsg['content'] = (lastMsg['content'] ?? '') + "\nError: $e";
+        });
       },
     );
   }
@@ -900,40 +850,212 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
   @override
   void dispose() {
     _subscription?.cancel();
-    if (!_controller.isClosed) _controller.close();
+    _textController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _handleFollowUp() {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+
+    _textController.clear();
+    setState(() {
+      _messages.add({'role': 'user', 'content': text});
+      _messages.add({'role': 'assistant', 'content': ''});
+      _isStreaming = true;
+    });
+
+    // If this is the first follow-up, we need to inject the original context
+    if (!_hasAskedFollowUp) {
+      _hasAskedFollowUp = true;
+      // Add the initial prompt and the generated summary to the history
+      // The summary is the content of the FIRST message in _messages
+      final summaryContent = _messages.first['content'] ?? '';
+      _chatService.addToHistory('user', widget.prompt);
+      _chatService.addToHistory('assistant', summaryContent);
+    }
+
+    _subscription = _chatService.streamResponse(text, useHistory: true).listen(
+      (chunk) {
+        setState(() {
+          final lastMsg = _messages.last;
+          lastMsg['content'] = (lastMsg['content'] ?? '') + chunk;
+        });
+        _scrollToBottom();
+      },
+      onDone: () {
+        setState(() => _isStreaming = false);
+        _saveChat();
+      },
+      onError: (e) {
+        setState(() {
+          _isStreaming = false;
+          final lastMsg = _messages.last;
+          lastMsg['content'] = (lastMsg['content'] ?? '') + "\nError: $e";
+        });
+      },
+    );
+  }
+
+  Future<void> _saveChat() async {
+    // Reconstruct display messages for saving
+    final displayMessages = _messages.map((m) {
+      if (m['role'] == 'user') {
+        return '**You**: ${m['content']}';
+      } else {
+        return '**Archie**: ${m['content']}';
+      }
+    }).toList();
+    
+    await _chatService.saveCurrentChat(displayMessages, title: widget.title);
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 100), // Faster for streaming
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    // Calculate size once
+    final size = MediaQuery.of(context).size;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    
+    // Explicit background colors for better contrast
+    final modalBackgroundColor = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final userBubbleColor = isDark ? const Color(0xFF3D3D3D) : Colors.blue[50];
+    final textFieldFillColor = isDark ? const Color(0xFF1E1E1E) : Colors.grey[100];
+    
+    // Ensure icon color is visible against the background
+    final iconColor = isDark ? Colors.white : theme.primaryColor;
+
     return AlertDialog(
       title: const Text('Summary'),
+      backgroundColor: modalBackgroundColor,
+      surfaceTintColor: Colors.transparent, // Disable Material 3 tint
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 0), // Removed top padding
       content: SizedBox(
-        width: double.maxFinite,
-        child: StreamBuilder<String>(
-          stream: _controller.stream,
-          builder: (context, snapshot) {
-            final text = snapshot.data ?? '';
+        width: size.width * 0.9,
+        height: size.height * 0.6,
+        child: Column(
+          children: [
+            Expanded(
+              child: _messages.isEmpty || (_messages.length == 1 && _messages.first['content']!.isEmpty && _isStreaming)
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.only(top: 10), // Minimal top padding for list
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = _messages[index];
+                        final isUser = msg['role'] == 'user';
+                        final content = msg['content'] ?? '';
+                        
+                        // Don't render empty assistant messages
+                        if (!isUser && content.isEmpty) return const SizedBox.shrink();
 
-            return Stack(
-              children: [
-                SingleChildScrollView(
-                  child: Text(text),
-                ),
-                if (_isStreaming)
-                  SizedBox(
-                    height: 24,
-                    child: Align(
-                      child: SizedBox(
-                          height: 24,
-                          width: 24,
-                          child:
-                              const Center(child: CircularProgressIndicator())),
+                        if (isUser) {
+                          // User message bubble
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Flexible(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: userBubbleColor,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      content,
+                                      style: theme.textTheme.bodyMedium,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        } else {
+                          // Assistant message (Markdown)
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4.0), // Reduced vertical padding
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                MarkdownBody(
+                                  data: content,
+                                  styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                                    p: theme.textTheme.bodyMedium,
+                                    blockquote: theme.textTheme.bodyMedium!.copyWith(
+                                      color: isDark ? Colors.grey[300] : Colors.grey[700],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                    code: theme.textTheme.bodySmall!.copyWith(
+                                      backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                const AiDisclaimer(compact: true),
+                                const Divider(height: 24), // Reduced divider height
+                              ],
+                            ),
+                          );
+                        }
+                      },
                     ),
+            ),
+            if (_isStreaming && (_messages.length > 1 || (_messages.isNotEmpty && _messages.first['content']!.isNotEmpty)))
+               Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: LinearProgressIndicator(
+                  backgroundColor: Colors.transparent, 
+                  valueColor: AlwaysStoppedAnimation<Color>(iconColor),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    style: theme.textTheme.bodyMedium,
+                    decoration: InputDecoration(
+                      hintText: 'Ask a follow-up...',
+                      hintStyle: TextStyle(color: theme.hintColor),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      filled: true,
+                      fillColor: textFieldFillColor,
+                    ),
+                    onSubmitted: (_) => _handleFollowUp(),
+                    enabled: !_isStreaming,
                   ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.send),
+                  color: iconColor,
+                  onPressed: _isStreaming ? null : _handleFollowUp,
+                ),
               ],
-            );
-          },
+            ),
+          ],
         ),
       ),
       actions: [

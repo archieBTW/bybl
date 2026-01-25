@@ -11,7 +11,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/verse_provider.dart';
 import 'main_app.dart';
-import 'church_registration_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -131,14 +130,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const Spacer(),
-                TextButton(
-                  onPressed: () => _navigateTo(ChurchRegistrationScreen()),
-                  child: Text(
-                    'Are you a church? Register here',
-                    style: TextStyle(
-                        color: theme.primaryTextTheme.bodyMedium?.color),
-                  ),
-                ),
                 const SizedBox(height: 20),
               ],
             ),

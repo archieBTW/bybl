@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/cupertino.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -102,7 +102,7 @@ class NotificationProvider extends ChangeNotifier {
         throw Exception('Failed to delete notification');
       }
     } catch (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack);
+      debugPrint('🔥 Error: $error\n$stack');
     } finally {
       isLoading = false;
       notifyListeners(); // Update UI to indicate loading has finished

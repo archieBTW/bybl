@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:TheWord/providers/verse_provider.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -62,7 +62,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           .showSnackBar(SnackBar(content: Text('Login failed: ${res.body}')));
       return false;
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       debugPrint('Login error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Login failed due to an error')));
@@ -109,7 +109,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             SnackBar(content: Text('Registration failed: ${res.body}')));
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       debugPrint('Registration error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Registration failed due to an error')));

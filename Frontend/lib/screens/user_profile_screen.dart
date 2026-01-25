@@ -1,7 +1,7 @@
 // lib/screens/user_profile_screen.dart
 
 import 'package:TheWord/shared/widgets/editable_avatar.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -53,7 +53,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         });
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       print('Error fetching user profile: $e');
       setState(() {
         isLoading = false;

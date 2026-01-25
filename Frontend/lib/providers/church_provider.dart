@@ -1,5 +1,5 @@
 import 'package:TheWord/models/prayer_request.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:TheWord/models/church.dart';
 import 'package:TheWord/models/small_group.dart';
@@ -47,7 +47,7 @@ class ChurchProvider with ChangeNotifier {
     try {
       _churches = await _churchService.getChurches();
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
     } finally {
       _isLoading = false;
       if (notify) {
@@ -63,7 +63,7 @@ class ChurchProvider with ChangeNotifier {
     try {
       _selectedChurch = await _churchService.getChurchDetails(churchID);
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -80,7 +80,7 @@ class ChurchProvider with ChangeNotifier {
             context,
           );
         } catch (e, stack) {
-          FirebaseCrashlytics.instance.recordError(e, stack);
+          debugPrint('🔥 Error: $e\n$stack');
         }
       }
     }));
@@ -93,7 +93,7 @@ class ChurchProvider with ChangeNotifier {
     try {
       _selectedGroup = await _churchService.getGroupDetails(groupID);
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -118,7 +118,7 @@ class ChurchProvider with ChangeNotifier {
       await _churchService.joinChurch(churchId);
       _userChurchId = churchId;
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     } finally {
       _isLoading = false;
@@ -135,7 +135,7 @@ class ChurchProvider with ChangeNotifier {
       _userChurchId = null;
       _userChurchName = null;
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     } finally {
       _isLoading = false;
@@ -158,7 +158,7 @@ class ChurchProvider with ChangeNotifier {
 
       await selectChurch(churchId);
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     } finally {
       _isLoading = false;
@@ -189,7 +189,7 @@ class ChurchProvider with ChangeNotifier {
 
       await selectChurch(churchId);
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     } finally {
       _isLoading = false;
@@ -220,7 +220,7 @@ class ChurchProvider with ChangeNotifier {
       // Refresh church details to get the new group
       await selectChurch(churchId);
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     } finally {
       _isLoading = false;
@@ -271,7 +271,7 @@ class ChurchProvider with ChangeNotifier {
         throw Exception('Failed to submit prayer request');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
     }
   }
 
@@ -298,7 +298,7 @@ class ChurchProvider with ChangeNotifier {
         throw Exception('Failed to delete church message');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -325,7 +325,7 @@ class ChurchProvider with ChangeNotifier {
         throw Exception('Failed to delete small group');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -354,7 +354,7 @@ class ChurchProvider with ChangeNotifier {
         throw Exception('Failed to delete prayer request');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }
@@ -381,7 +381,7 @@ class ChurchProvider with ChangeNotifier {
         throw Exception('Failed to delete church event');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       rethrow;
     }
   }

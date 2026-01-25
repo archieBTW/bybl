@@ -1,4 +1,4 @@
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -75,7 +75,7 @@ class BibleProvider with ChangeNotifier {
         throw Exception('Failed to load books');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
     } finally {
       isLoadingBooks = false;
       notifyListeners();
@@ -106,7 +106,7 @@ class BibleProvider with ChangeNotifier {
         throw Exception('Failed to load chapters');
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
     } finally {
       isLoadingChapters = false;
       notifyListeners();

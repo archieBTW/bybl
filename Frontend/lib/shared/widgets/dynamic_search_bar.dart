@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'package:TheWord/providers/bible_provider.dart';
-import 'package:TheWord/providers/friend_provider.dart';
-import 'package:TheWord/providers/verse_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-enum SearchType { BibleBooks, PublicVerses, SavedVerses, Friends, Settings, Profile }
+enum SearchType { BibleBooks, Settings }
 
 class DynamicSearchBar extends StatefulWidget {
   final SearchType searchType;
@@ -28,22 +26,6 @@ class _DynamicSearchBarState extends State<DynamicSearchBar> {
       Provider.of<BibleProvider>(context, listen: false)
           .filterBooks(filterString);
     }
-    if (widget.searchType == SearchType.PublicVerses) {
-      Provider.of<VerseProvider>(context, listen: false)
-          .searchPublicVerses(filterString, reset: true);
-    }
-    if (widget.searchType == SearchType.SavedVerses) {
-      Provider.of<VerseProvider>(context, listen: false)
-          .searchSavedVerses(filterString, reset: true);
-    }
-    if (widget.searchType == SearchType.Friends) {
-      Provider.of<FriendProvider>(context, listen: false).searchFriends(filterString, context);
-    }
-    if (widget.searchType == SearchType.Profile) {
-      await Provider.of<VerseProvider>(context, listen: false)
-          .searchSavedVerses(filterString, reset: true);
-      await Provider.of<FriendProvider>(context, listen: false).searchFriends(filterString, context);
-    }
   }
 
   void _onSearchChanged(String query) {
@@ -63,16 +45,8 @@ class _DynamicSearchBarState extends State<DynamicSearchBar> {
     switch (widget.searchType) {
       case SearchType.BibleBooks:
         return 'Search Bible books...';
-      case SearchType.PublicVerses:
-        return 'Search Public Verses...';
-      case SearchType.SavedVerses:
-        return 'Search Saved Verses...';
-      case SearchType.Friends:
-        return 'Search Friends...';
       case SearchType.Settings:
         return 'Search Settings...';
-      case SearchType.Profile:
-        return 'Search...';
       default:
         return 'Search...';
     }

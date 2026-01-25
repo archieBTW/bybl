@@ -1,7 +1,7 @@
 import 'package:TheWord/providers/settings_provider.dart';
 import 'package:TheWord/services/settings_service.dart';
 import 'package:TheWord/shared/widgets/editable_avatar.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -120,7 +120,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen>
                           );
                         }
                       } catch (e, stack) {
-                        FirebaseCrashlytics.instance.recordError(e, stack);
+                        debugPrint('🔥 Error: $e\n$stack');
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('Error joining church: $e')),
@@ -143,7 +143,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen>
                           );
                         }
                       } catch (e, stack) {
-                        FirebaseCrashlytics.instance.recordError(e, stack);
+                        debugPrint('🔥 Error: $e\n$stack');
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('Error leaving church: $e')),
@@ -213,8 +213,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen>
                                     );
                                   }
                                 } catch (e, stack) {
-                                  FirebaseCrashlytics.instance
-                                      .recordError(e, stack);
+                                  debugPrint('🔥 Error: $e\n$stack');
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
@@ -254,8 +253,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen>
                                     );
                                   }
                                 } catch (e, stack) {
-                                  FirebaseCrashlytics.instance
-                                      .recordError(e, stack);
+                                  debugPrint('🔥 Error: $e\n$stack');
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
@@ -295,8 +293,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen>
                                     );
                                   }
                                 } catch (e, stack) {
-                                  FirebaseCrashlytics.instance
-                                      .recordError(e, stack);
+                                  debugPrint('🔥 Error: $e\n$stack');
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
@@ -801,7 +798,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen>
                             content: Text('Prayer request submitted')),
                       );
                     } catch (e, stack) {
-                      FirebaseCrashlytics.instance.recordError(e, stack);
+                      debugPrint('🔥 Error: $e\n$stack');
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text('Error: $e')),
                       );

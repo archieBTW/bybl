@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/verse_provider.dart';
+import 'package:TheWord/shared/widgets/api_key_setup_prompt.dart';
+import 'package:TheWord/screens/settings_screen.dart';
 import 'package:flutter/services.dart';
 
 class SelectableTextHighlight extends StatefulWidget {
@@ -13,7 +15,7 @@ class SelectableTextHighlight extends StatefulWidget {
   String bookName;
   String translationId;
   String chapterId;
-  bool loggedIn;
+  String? copyright;
   SelectableTextHighlight(
       {Key? key,
       required this.verses,
@@ -22,7 +24,7 @@ class SelectableTextHighlight extends StatefulWidget {
       required this.chapterId,
       required this.translationId,
       this.currentVerseIndex,
-      this.loggedIn = false})
+      this.copyright})
       : super(key: key);
 
   @override
@@ -85,29 +87,16 @@ class SelectableTextHighlightState extends State<SelectableTextHighlight> {
     final settingsProvider = Provider.of<SettingsProvider>(context);
     final verseProvider = Provider.of<VerseProvider>(context);
 
-    // final isESV =
-    // settingsProvider.currentTranslationId == 'bba9f40183526463-01';
-
-    // final versesWithCopyright = List<Map<String, dynamic>>.from(widget.verses);
     final versesWithCopyright = List<Map<String, dynamic>>.from(widget.verses);
 
-// Remove "(ESV)" from last verse if present
-    // if (isESV && versesWithCopyright.isNotEmpty) {
-    // final lastVerse = versesWithCopyright.last;
-    // if (lastVerse['text'] is String) {
-    // lastVerse['text'] =
-    // lastVerse['text'].replaceAll(RegExp(r'\s*\(ESV\)\s*$'), '');
-    // }
-    // }
-
-    // if (isESV && widget.verses.isNotEmpty) {
-    //   versesWithCopyright.add({
-    //     'id': 'copyright',
-    //     'text': 'Scripture quotations are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, '
-    //         'a publishing ministry of Good News Publishers. Used by permission. All rights reserved...',
-    //     'isCopyright': true,
-    //   });
-    // }
+    // Add copyright at the end if available
+    if (widget.copyright != null && widget.copyright!.isNotEmpty && widget.verses.isNotEmpty) {
+      versesWithCopyright.add({
+        'id': 'copyright',
+        'text': widget.copyright,
+        'isCopyright': true,
+      });
+    }
 
     return ListView.builder(
       key: PageStorageKey(widget.chapterId),
@@ -229,17 +218,15 @@ class SelectableTextHighlightState extends State<SelectableTextHighlight> {
                           ),
                           recognizer: TapGestureRecognizer()
                             ..onTap = () {
-                              if (widget.loggedIn) {
-                                setState(() {
-                                  if (selectedVerseId == verseId) {
-                                    selectedVerseId = null;
-                                    _activeTooltipVerseId = null;
-                                  } else {
-                                    selectedVerseId = verseId;
-                                    _activeTooltipVerseId = verseId;
-                                  }
-                                });
-                              }
+                              setState(() {
+                                if (selectedVerseId == verseId) {
+                                  selectedVerseId = null;
+                                  _activeTooltipVerseId = null;
+                                } else {
+                                  selectedVerseId = verseId;
+                                  _activeTooltipVerseId = verseId;
+                                }
+                              });
                             },
                         ),
                       ],
@@ -366,11 +353,50 @@ class SelectableTextHighlightState extends State<SelectableTextHighlight> {
   }
 
   void _summarizeVerse(BuildContext context, String verseText) {
-    final prompt = "Summarize and interpret this Bible verse:\n\n$verseText";
+    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
+    final hasApiKey = settingsProvider.geminiApiKey != null && settingsProvider.geminiApiKey!.isNotEmpty;
+
+    if (!hasApiKey) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('API Key Required'),
+          content: SingleChildScrollView(
+            child: ApiKeySetupPrompt(
+              onGoToSettings: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Construct a title from the verse ID if possible, otherwise generic
+    // We can't access verseId easily here without passing it, but we can verify if selectedVerseId is set
+    // Or just use "Verse Summary"
+    String title = "Verse Summary";
+    String reference = "";
+    if (selectedVerseId != null) {
+        // Cleaning up the ID for display
+        // e.g., GEN.1.1 or just 1
+        title = "Summary of $selectedVerseId";
+        reference = " ($selectedVerseId)";
+    }
+
+    final prompt = "Summarize and interpret this Bible verse$reference:\n\n$verseText";
 
     showDialog(
       context: context,
-      builder: (context) => StreamedSummaryModal(prompt: prompt),
+      builder: (context) => StreamedSummaryModal(
+        prompt: prompt, 
+        title: title,
+      ),
     );
   }
 }

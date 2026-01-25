@@ -1,4 +1,4 @@
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -28,14 +28,14 @@ class SettingsService {
         try {
           return json.decode(response.body);
         } catch (e, stack) {
-          FirebaseCrashlytics.instance.recordError(e, stack);
+          debugPrint('🔥 Error: $e\n$stack');
           return null;
         }
       } else {
         return null;
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       return null;
     }
   }
@@ -207,7 +207,7 @@ class SettingsService {
         );
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );

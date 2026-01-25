@@ -3,7 +3,7 @@ import 'package:TheWord/screens/user_profile_screen.dart';
 import 'package:TheWord/services/settings_service.dart';
 import 'package:TheWord/shared/widgets/editable_avatar.dart';
 import 'package:TheWord/shared/widgets/initial_avatar.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_cropper/image_cropper.dart';
@@ -14,10 +14,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/friend_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/notification_provider.dart';
-import '../providers/verse_provider.dart';
-import '../shared/widgets/dynamic_search_bar.dart';
-import '../shared/widgets/verse_card.dart';
-import 'comment_screen.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -35,37 +31,20 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final ScrollController _versesScrollController = ScrollController();
   Color? fontColor;
-  // int _avatarTimestamp = DateTime.now().millisecondsSinceEpoch;
 
   String? _avatarUrl;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _versesScrollController.addListener(_onVersesScroll);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<VerseProvider>(context, listen: false)
-          .fetchSavedVerses(reset: true);
-    });
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _versesScrollController.dispose();
     super.dispose();
-  }
-
-  void _onVersesScroll() {
-    final verseProvider = Provider.of<VerseProvider>(context, listen: false);
-    if (_versesScrollController.position.pixels >=
-        _versesScrollController.position.maxScrollExtent - 200) {
-      verseProvider.fetchSavedVerses();
-    }
   }
 
   @override
@@ -76,10 +55,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          "My Profile",
-          style: TextStyle(color: settingsProvider.fontColor),
-        ),
+        toolbarHeight: 0,
         bottom: TabBar(
           controller: _tabController,
           labelColor: settingsProvider.fontColor,
@@ -90,35 +66,15 @@ class _ProfileScreenState extends State<ProfileScreen>
               const TextStyle(fontSize: 12), // 👈 smaller font for inactive tab
           tabs: const [
             Tab(text: 'Profile'),
-            Tab(text: 'Highlights'),
             Tab(text: 'My Friends'),
             Tab(text: 'Suggested'),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              Provider.of<FriendProvider>(context, listen: false).reset();
-              Provider.of<VerseProvider>(context, listen: false).reset();
-              await settingsProvider.logout();
-              SharedPreferences prefs = await SharedPreferences.getInstance();
-              prefs.clear();
-
-              Navigator.of(context)
-                  .pushNamedAndRemoveUntil('/main', (route) => false);
-            },
-          ),
-        ],
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildProfileTab(), // new
-          Consumer<VerseProvider>(
-            builder: (context, verseProvider, _) =>
-                _buildSavedVersesTab(verseProvider),
-          ),
+          _buildProfileTab(),
           Consumer<FriendProvider>(
             builder: (context, friendProvider, _) =>
                 _buildMyFriendsTab(friendProvider),
@@ -308,8 +264,8 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: ListView(
         padding: const EdgeInsets.all(8.0),
         children: [
-          const Text('Suggested Friends',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          // const Text('Suggested Friends',
+              // style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (friendProvider.suggestedFriends.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8.0),
@@ -356,8 +312,8 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: ListView(
         padding: const EdgeInsets.all(8.0),
         children: [
-          const Text('My Friends',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          // const Text('My Friends',
+              // style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (friendProvider.friends.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8.0),
@@ -396,66 +352,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildSavedVersesTab(VerseProvider verseProvider) {
-    return RefreshIndicator(
-      onRefresh: () async {
-        await verseProvider.fetchSavedVerses(reset: true);
-      },
-      child: verseProvider.savedVerses.isEmpty
-          ? const Center(
-              child: Padding(
-              padding: EdgeInsets.all(24.0),
-              child: Text('No saved verses yet.',
-                  style: TextStyle(color: Colors.grey)),
-            ))
-          : ListView.builder(
-              controller: _versesScrollController,
-              itemCount: verseProvider.savedVerses.length +
-                  (verseProvider.hasMoreSavedVerses ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index == verseProvider.savedVerses.length) {
-                  return Container();
-                }
-                final verse = verseProvider.savedVerses[index];
-                int userVerseId = verse['UserVerseID'];
-                bool isPublished = verse['is_published'] ?? false;
-                return VerseCard(
-                  verseId: verse['VerseID'],
-                  note: verse['Note'] ?? '',
-                  verseContent: verse['Content'],
-                  likesCount: verse['likes_count'] ?? 0,
-                  commentCount: verse['comment_count'] ?? 0,
-                  onLike: () {},
-                  onComment: () => _navigateToComments(context, verse),
-                  isSaved: true,
-                  isPublished: isPublished,
-                  onSaveNote: (note) async => await verseProvider.saveNote(
-                    verse['VerseID'].toString(),
-                    verse['UserVerseID'].toString(),
-                    note,
-                  ),
-                  onDelete: () =>
-                      verseProvider.unsaveVerse(userVerseId.toString()),
-                  onPublish: isPublished
-                      ? null
-                      : (note) async => await verseProvider
-                          .publishVerse(userVerseId.toString()),
-                  onUnpublish: isPublished
-                      ? () async => await verseProvider
-                          .unpublishVerse(userVerseId.toString())
-                      : null,
-                );
-              },
-            ),
-    );
-  }
-
-  void _navigateToComments(BuildContext context, dynamic verse) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => CommentsScreen(verse: verse)),
-    );
-  }
 }
 
 class CircularAvatarCropper extends StatefulWidget {
@@ -554,7 +450,7 @@ class _CircularAvatarCropperState extends State<CircularAvatarCropper> {
         );
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance.recordError(e, stack);
+      debugPrint('🔥 Error: $e\n$stack');
       setState(() => _isUploading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Upload failed: $e')),
