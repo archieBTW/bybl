@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/user_settings_enums.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -111,6 +112,40 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('translationId', translationId);
     await prefs.setString('translationName', translationName);
+  }
+
+  Future<void> saveDenomination(Denomination denomination) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('denomination', denomination.name);
+  }
+
+  Future<Denomination> loadDenomination() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? denominationString = prefs.getString('denomination');
+    if (denominationString != null) {
+      return Denomination.values.firstWhere(
+        (e) => e.name == denominationString,
+        orElse: () => Denomination.other,
+      );
+    }
+    return Denomination.nondenominational; // Default
+  }
+
+  Future<void> saveAIContext(AIContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('aiContext', context.name);
+  }
+
+  Future<AIContext> loadAIContext() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? contextString = prefs.getString('aiContext');
+    if (contextString != null) {
+      return AIContext.values.firstWhere(
+        (e) => e.name == contextString,
+        orElse: () => AIContext.devotional,
+      );
+    }
+    return AIContext.devotional; // Default
   }
 
   Future<Map<String, String>> loadTranslation() async {

@@ -368,6 +368,38 @@ class ChatScreenState extends State<ChatScreen> {
                                     color:
                                         isUser ? settings.fontColor : Colors.white,
                                   ),
+                                  blockquote: TextStyle(
+                                    color: isUser
+                                        ? settings.fontColor
+                                        : Colors.white70,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                  blockquoteDecoration: BoxDecoration(
+                                    color: isUser
+                                        ? Colors.black12
+                                        : Colors.white10,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border(
+                                      left: BorderSide(
+                                        color: isUser
+                                            ? settings.fontColor ?? Colors.grey
+                                            : Colors.grey,
+                                        width: 4,
+                                      ),
+                                    ),
+                                  ),
+                                  code: TextStyle(
+                                    color: isUser
+                                        ? settings.fontColor
+                                        : Colors.white,
+                                    backgroundColor: Colors.transparent,
+                                  ),
+                                  codeblockDecoration: BoxDecoration(
+                                    color: isUser
+                                        ? Colors.black12
+                                        : Colors.black26,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
                                 ),
                               ),
                             ),

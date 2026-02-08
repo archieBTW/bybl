@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:TheWord/screens/main_app.dart';
+import 'package:flutter/foundation.dart';
 import 'package:TheWord/screens/settings_screen.dart';
 import 'package:TheWord/shared/widgets/highlight_text.dart';
 import 'package:TheWord/shared/widgets/api_key_setup_prompt.dart';
@@ -8,15 +8,13 @@ import 'package:TheWord/services/local_storage_service.dart';
 import 'package:TheWord/models/local_bookmark.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/settings_provider.dart';
 import '../services/chat_service.dart';
+import '../services/tts_service.dart';
 import '../shared/widgets/ai_disclaimer.dart';
 
 class ReaderScreen extends StatefulWidget {
@@ -28,16 +26,19 @@ class ReaderScreen extends StatefulWidget {
   final String translationName;
   final String translationId;
   final String bookId;
+  final String? targetVerseId;
 
-  ReaderScreen(
-      {required this.chapterId,
-      required this.chapterName,
-      required this.chapterIds,
-      required this.chapterNames,
-      required this.bookName,
-      required this.translationName,
-      required this.translationId,
-      required this.bookId});
+  ReaderScreen({
+    required this.chapterId,
+    required this.chapterName,
+    required this.chapterIds,
+    required this.chapterNames,
+    required this.bookName,
+    required this.translationName,
+    required this.translationId,
+    required this.bookId,
+    this.targetVerseId,
+  });
 
   @override
   ReaderScreenState createState() => ReaderScreenState();
@@ -60,11 +61,16 @@ class ReaderScreenState extends State<ReaderScreen> {
   bool isSkipping = false;
   int? currentVerseIndex;
 
+  // Prefetching state
+  final Map<String, Map<int, String>> _audioCache = {};
+  final Map<String, Map<int, Future<String?>>> _activePrefetches = {};
+
   int currentPageIndex = 0;
   String chapterName = '';
   bool pageChanging = false;
 
-  FlutterTts flutterTts = FlutterTts();
+  // FlutterTts flutterTts = FlutterTts();
+  final TtsService _ttsService = TtsService();
 
   ChatService chatService = ChatService();
 
@@ -82,29 +88,30 @@ class ReaderScreenState extends State<ReaderScreen> {
     final initialIndex = widget.chapterIds.indexOf(widget.chapterId);
     currentPageIndex = initialIndex >= 0 ? initialIndex : 0;
 
-    _pageController = PageController(
-      initialPage: currentPageIndex,
-    );
+    _pageController = PageController(initialPage: currentPageIndex);
 
     _fetchChapterContent(widget.chapterId);
     _preloadAdjacentChapters(widget.chapterId);
 
-    flutterTts.setCompletionHandler(() {
-      if (!isSkipping) {
-        _readNextVerse();
-      }
-      isSkipping = false;
-    });
+    // flutterTts.setCompletionHandler(() {
+    //   if (!isSkipping) {
+    //     _readNextVerse();
+    //   }
+    //   isSkipping = false;
+    // });
 
-    flutterTts.setSpeechRate(0.5);
-    flutterTts.setPitch(1.0);
-    flutterTts.setLanguage('en-US');
-    flutterTts.awaitSpeakCompletion(true);
+    // flutterTts.setSpeechRate(0.5);
+    // flutterTts.setPitch(1.0);
+    // flutterTts.setLanguage('en-US');
+    // flutterTts.awaitSpeakCompletion(true);
+
+    _ttsService.init();
   }
 
   @override
   void dispose() {
-    flutterTts.stop();
+    // flutterTts.stop();
+    _ttsService.stop();
     for (final controller in _scrollControllers.values) {
       controller.dispose();
     }
@@ -117,8 +124,10 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   String? _lastPreloadedChapterId;
 
-  Future<void> _fetchChapterContent(String chapterId,
-      {bool showLoading = true}) async {
+  Future<void> _fetchChapterContent(
+    String chapterId, {
+    bool showLoading = true,
+  }) async {
     print(chapterId);
     // final settingsProvider =
     // Provider.of<SettingsProvider>(context, listen: false);
@@ -136,14 +145,16 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
 
     try {
-      final response = await http.get(Uri.parse(
-        'https://api.bybl.dev/api/passage/$translationId?q=$chapterId',
-      ));
+      final response = await http.get(
+        Uri.parse(
+          'https://api.bybl.dev/api/passage/$translationId?q=$chapterId',
+        ),
+      );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final rawContent = data['data']['content'];
-        
+
         // Extract copyright information from the API response
         final copyright = data['data']['copyright'] as String?;
         _chapterCopyrights[chapterId] = copyright;
@@ -220,10 +231,10 @@ class ReaderScreenState extends State<ReaderScreen> {
           for (final t in (item['items'] as List? ?? const [])) {
             if (t['type'] == 'text') buf.write(t['text'] ?? '');
           }
-          final txt = buf
-              .toString()
-              .trim()
-              .replaceFirst(RegExp(r'^\s*\[?\d+\]?'), ''); // drop [7]
+          final txt = buf.toString().trim().replaceFirst(
+                RegExp(r'^\s*\[?\d+\]?'),
+                '',
+              ); // drop [7]
 
           if (activeId != null && txt.isNotEmpty) {
             _appendOrMergeVerse(verses, activeId!, txt);
@@ -280,13 +291,16 @@ class ReaderScreenState extends State<ReaderScreen> {
     return verses;
   }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// 2.  Helper used by _extractScriptureApiVerses
-//     Converts IDs like "NUM 2:3"  →  "NUM.2.3"
-//     so SelectableTextHighlight works the same way it always has.
-// ──────────────────────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────────────
+  // 2.  Helper used by _extractScriptureApiVerses
+  //     Converts IDs like "NUM 2:3"  →  "NUM.2.3"
+  //     so SelectableTextHighlight works the same way it always has.
+  // ──────────────────────────────────────────────────────────────────────────────
   void _appendOrMergeVerse(
-      List<Map<String, dynamic>> verses, String rawId, String verseText) {
+    List<Map<String, dynamic>> verses,
+    String rawId,
+    String verseText,
+  ) {
     // normalise: spaces & colons → dots
     final normId = rawId.replaceAll(RegExp(r'[: ]'), '.');
 
@@ -311,8 +325,37 @@ class ReaderScreenState extends State<ReaderScreen> {
     _readVerse(0);
   }
 
+  Future<void> _prefetchVerse(int index) async {
+    final chapterId = widget.chapterId;
+    final verses = _chapterContents[chapterId];
+    if (verses == null || index >= verses.length) return;
+
+    if (_audioCache[chapterId]?.containsKey(index) ?? false) return;
+    if (_activePrefetches[chapterId]?.containsKey(index) ?? false) return;
+
+    final text = verses[index]['text'] ?? '';
+    if (text.trim().isEmpty) return;
+
+    final future = _ttsService
+        .generateAudio(text,
+            outputFileName:
+                'verse_${index}_${DateTime.now().millisecondsSinceEpoch}.wav')
+        .then((path) {
+      if (path != null && mounted) {
+        _audioCache.putIfAbsent(chapterId, () => {})[index] = path;
+      }
+      if (mounted) {
+        _activePrefetches[chapterId]?.remove(index);
+      }
+      return path;
+    });
+
+    _activePrefetches.putIfAbsent(chapterId, () => {})[index] = future;
+  }
+
   void _readVerse(int index) async {
-    final verses = _chapterContents[widget.chapterId];
+    final chapterId = widget.chapterId;
+    final verses = _chapterContents[chapterId];
     if (verses == null || verses.isEmpty) return;
 
     if (index >= verses.length) {
@@ -321,7 +364,11 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
 
     if (index == 0) {
+      _prefetchVerse(0);
       await _announceChapter(chapterName);
+      if (mounted) {
+        setState(() => isSkipping = false);
+      }
     }
 
     final text = verses[index]['text'] ?? '';
@@ -331,7 +378,53 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
 
     setState(() => currentVerseIndex = index);
-    await flutterTts.speak(text);
+
+    final nextIndex = index + 1;
+    if (nextIndex < verses.length) {
+      _prefetchVerse(nextIndex);
+    }
+
+    String? audioPath;
+
+    if (_audioCache[chapterId]?.containsKey(index) ?? false) {
+      audioPath = _audioCache[chapterId]![index];
+    } else if (_activePrefetches[chapterId]?.containsKey(index) ?? false) {
+      audioPath = await _activePrefetches[chapterId]![index];
+    } else {
+      audioPath = await _ttsService.generateAudio(
+        text,
+        outputFileName:
+            'verse_${index}_${DateTime.now().millisecondsSinceEpoch}.wav',
+      );
+      if (audioPath != null && mounted) {
+        _audioCache.putIfAbsent(chapterId, () => {})[index] = audioPath;
+      }
+    }
+
+    if (audioPath != null) {
+      await _ttsService.playAudio(
+        audioPath,
+        onCompletion: () {
+          if (!isSkipping && isReading) {
+            _readNextVerse();
+          }
+          isSkipping = false;
+        },
+      );
+    } else {
+      // if (!isSkipping && isReading) {
+      //   _readNextVerse();
+      // }
+      // isSkipping = false;
+      print("Audio generation failed for index $index. Stopping playback.");
+      _pauseReading();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("TTS Error: Could not generate audio.")),
+        );
+      }
+    }
   }
 
   void _readNextVerse() {
@@ -347,7 +440,8 @@ class ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _pauseReading() {
-    flutterTts.stop();
+    // flutterTts.stop();
+    _ttsService.stop();
     setState(() {
       isReading = false;
       isPaused = true;
@@ -364,14 +458,30 @@ class ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _skipReading() {
-    flutterTts.stop();
+    // flutterTts.stop();
+    _ttsService.stop();
     setState(() => isSkipping = true);
     _readNextVerse();
   }
 
   Future<void> _announceChapter(String chapterName) async {
     setState(() => isSkipping = true);
-    await flutterTts.speak(chapterName);
+
+    // Improved announcement text
+    String textToSpeak = chapterName;
+    // If it's just a number or doesn't start with "Chapter" or the book name
+    if (!textToSpeak.toLowerCase().startsWith('chapter') &&
+        !textToSpeak.toLowerCase().contains(widget.bookName.toLowerCase())) {
+      textToSpeak = "Chapter $textToSpeak";
+    }
+
+    await _ttsService.speak(
+      textToSpeak,
+      onCompletion: () {
+        // Proceed to first verse automatically if needed, or just let the flow continue
+        // logic in _readVerse usually handles the flow since this is awaited.
+      },
+    );
   }
 
   Future<void> _fetchNextChapter() async {
@@ -384,20 +494,10 @@ class ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    final nextChapterId = widget.chapterIds[nextIndex];
-    final nextChapterName = widget.chapterNames[nextIndex];
-
-    await _fetchChapterContent(nextChapterId);
-
-    setState(() {
-      widget.chapterId = nextChapterId;
-      chapterName = nextChapterName;
-      currentVerseIndex = 0;
-      _pageController.jumpToPage(nextIndex);
-      isSkipping = false;
-    });
-
-    _readVerse(0);
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
   }
 
   // Existing method for left/right arrow navigation
@@ -424,28 +524,7 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   void _changeToChapter(int index) async {
     if (index < 0 || index >= widget.chapterIds.length) return;
-
-    final newChapterId = widget.chapterIds[index];
-    final newChapterName = widget.chapterNames[index];
-
-    if (isReading) {
-      flutterTts.stop();
-    }
-
-    setState(() {
-      widget.chapterId = newChapterId;
-      chapterName = newChapterName;
-      currentVerseIndex = 0;
-      currentPageIndex = index;
-      isLoading = true;
-    });
-
-    await _fetchChapterContent(newChapterId);
     _pageController.jumpToPage(index);
-
-    if (isReading) {
-      _resumeReading();
-    }
   }
 
   void _showChapterSelection() {
@@ -494,9 +573,12 @@ class ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _summarizeContent() {
-    final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
-    final hasApiKey = settingsProvider.geminiApiKey != null && 
-                      settingsProvider.geminiApiKey!.isNotEmpty;
+    final settingsProvider = Provider.of<SettingsProvider>(
+      context,
+      listen: false,
+    );
+    final hasApiKey = settingsProvider.geminiApiKey != null &&
+        settingsProvider.geminiApiKey!.isNotEmpty;
 
     // Check for API key first
     if (!hasApiKey) {
@@ -544,69 +626,77 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Tablet check
+    final double screenWidth = MediaQuery.of(context).size.shortestSide;
+    final bool isTablet = screenWidth > 600;
+    final double fontSize = isTablet ? 24.0 : 18.0;
+
     final theme = Theme.of(context);
-    final settingsProvider =
-        Provider.of<SettingsProvider>(context, listen: false);
+    final settingsProvider = Provider.of<SettingsProvider>(
+      context,
+      listen: false,
+    );
 
     return WillPopScope(
       onWillPop: () async => false,
       child: Scaffold(
         appBar: AppBar(
-                automaticallyImplyLeading: false,
-                leading: Row(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    IconButton(
-                        iconSize: 24,
-                        padding: const EdgeInsets.only(left: 12),
-                        icon: const Icon(Icons.arrow_back),
-                        onPressed: () {
-                          // Navigator.of(context).pushNamedAndRemoveUntil(
-                          // '/main', (route) => false);
-                          Navigator.of(context).pop();
-                        })
-                  ],
-                ),
-                toolbarHeight: 30,
-                backgroundColor: theme.scaffoldBackgroundColor,
-                iconTheme: IconThemeData(
-                  color: (settingsProvider.currentThemeMode == ThemeMode.dark)
-                      ? Colors.white
-                      : Colors.black,
-                ),
-                actions: [
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 14.0),
-                            child: Center(
-                              child: SizedBox(
-                                height: 36,
-                                child: Center(
-                                  child: Text(
-                                    widget.bookName,
-                                    style: const TextStyle(fontSize: 20),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          color: (settingsProvider.currentThemeMode ==
-                                  ThemeMode.dark)
-                              ? Colors.white
-                              : Colors.black,
-                          icon: Icon(isReading ? Icons.stop : Icons.play_arrow),
-                          onPressed: () {
-                            if (isReading) {
-                              _pauseReading();
-                            } else {
-                              _startReading();
-                            }
-                          },
-                        ),
-                      ],
+          automaticallyImplyLeading: false,
+          leading: Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              IconButton(
+                iconSize: 24,
+                padding: const EdgeInsets.only(left: 12),
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () {
+                  // Navigator.of(context).pushNamedAndRemoveUntil(
+                  // '/main', (route) => false);
+                  Navigator.of(context).pop();
+                },
               ),
+            ],
+          ),
+          toolbarHeight: 30,
+          backgroundColor: theme.scaffoldBackgroundColor,
+          iconTheme: IconThemeData(
+            color: (settingsProvider.currentThemeMode == ThemeMode.dark)
+                ? Colors.white
+                : Colors.black,
+          ),
+          actions: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 14.0),
+                child: Center(
+                  child: SizedBox(
+                    height: 36,
+                    child: Center(
+                      child: Text(
+                        widget.bookName,
+                        style: const TextStyle(fontSize: 20),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (!kIsWeb)
+              IconButton(
+                color: (settingsProvider.currentThemeMode == ThemeMode.dark)
+                    ? Colors.white
+                    : Colors.black,
+                icon: Icon(isReading ? Icons.stop : Icons.play_arrow),
+                onPressed: () {
+                  if (isReading) {
+                    _pauseReading();
+                  } else {
+                    _startReading();
+                  }
+                },
+              ),
+          ],
+        ),
         backgroundColor: theme.scaffoldBackgroundColor,
         body: Stack(
           children: [
@@ -618,21 +708,30 @@ class ReaderScreenState extends State<ReaderScreen> {
                     controller: _pageController,
                     itemCount: widget.chapterIds.length,
                     onPageChanged: (index) {
-                      if (isReading) {
-                        flutterTts.stop();
-                      }
+                      // Centralized Page Change Logic
                       final newChapterId = widget.chapterIds[index];
                       final newChapterName = widget.chapterNames[index];
+
+                      // Stop audio if it was playing, but keep isReading true
+                      // if we want to auto-resume on the new page.
+                      if (isReading) {
+                        // flutterTts.stop();
+                        _ttsService.stop();
+                        // Note: isReading remains true
+                      }
 
                       setState(() {
                         currentPageIndex = index;
                         widget.chapterId = newChapterId;
                         chapterName = newChapterName;
-                        isReading
-                            ? currentVerseIndex = 0
-                            : currentVerseIndex = null;
+                        if (isReading) {
+                          currentVerseIndex = 0;
+                        } else {
+                          currentVerseIndex = null;
+                        }
                         isLoading = true;
                       });
+
                       _fetchChapterContent(newChapterId).then((_) {
                         _preloadAdjacentChapters(newChapterId);
                         setState(() {
@@ -640,6 +739,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                           pageChanging = false;
                         });
                         if (isReading) {
+                          // Resume reading from the start of the new chapter
                           _resumeReading();
                         }
                       });
@@ -660,17 +760,22 @@ class ReaderScreenState extends State<ReaderScreen> {
                         translationId: widget.translationId,
                         verses: verses,
                         copyright: copyright,
-                        style:
-                            theme.textTheme.bodyMedium!.copyWith(fontSize: 20),
+                        style: theme.textTheme.bodyMedium!.copyWith(
+                          fontSize: fontSize,
+                        ),
                         currentVerseIndex: (chapterId == widget.chapterId)
                             ? currentVerseIndex
                             : -1,
+                        targetVerseId:
+                            (isCurrent && widget.targetVerseId != null)
+                                ? widget.targetVerseId
+                                : null,
                       );
                     },
                   ),
                 ),
 
-                if (isReading)
+                if (isReading && !kIsWeb)
                   Container(
                     color: Colors.grey[200],
                     child: Row(
@@ -689,86 +794,83 @@ class ReaderScreenState extends State<ReaderScreen> {
                   ),
               ],
             ),
-
             if (isSummaryLoading)
               Container(
                 color: Colors.black54,
-                child: const Center(
-                  child: CircularProgressIndicator(),
-                ),
+                child: const Center(child: CircularProgressIndicator()),
               ),
           ],
         ),
         bottomNavigationBar: BottomAppBar(
-                color: theme.scaffoldBackgroundColor,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: <Widget>[
-                    // Bookmark
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.bookmark_add),
-                          onPressed: () async {
-                            final bookmark = LocalBookmark.create(
-                              chapterId: widget.chapterId,
-                              bookName: widget.bookName,
-                              chapterName: chapterName,
-                              translationName: widget.translationName,
-                              translationId: widget.translationId,
-                              bookId: widget.bookId,
-                            );
-                            
-                            await LocalStorageService.saveBookmark(bookmark);
-                            
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Bookmark saved')),
-                              );
-                            }
-                          },
-                          tooltip: 'Bookmark',
-                        ),
-                        const Text('Bookmark', style: TextStyle(fontSize: 12)),
-                      ],
-                    ),
+          color: theme.scaffoldBackgroundColor,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: <Widget>[
+              // Bookmark
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.bookmark_add),
+                    onPressed: () async {
+                      final bookmark = LocalBookmark.create(
+                        chapterId: widget.chapterId,
+                        bookName: widget.bookName,
+                        chapterName: chapterName,
+                        translationName: widget.translationName,
+                        translationId: widget.translationId,
+                        bookId: widget.bookId,
+                      );
 
-                    IconButton(
-                      icon: const Icon(Icons.arrow_circle_left, size: 40),
-                      onPressed: () => _changePage(-1),
-                    ),
+                      await LocalStorageService.saveBookmark(bookmark);
 
-                    InkWell(
-                      onTap: _showChapterSelection,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: Text(
-                          chapterName,
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                      ),
-                    ),
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Bookmark saved')),
+                        );
+                      }
+                    },
+                    tooltip: 'Bookmark',
+                  ),
+                  const Text('Bookmark', style: TextStyle(fontSize: 12)),
+                ],
+              ),
 
-                    IconButton(
-                      icon: const Icon(Icons.arrow_circle_right, size: 40),
-                      onPressed: () => _changePage(1),
-                    ),
+              IconButton(
+                icon: const Icon(Icons.arrow_circle_left, size: 40),
+                onPressed: () => _changePage(-1),
+              ),
 
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.summarize),
-                          onPressed: _summarizeContent,
-                          tooltip: 'Summarize',
-                        ),
-                        const Text('Summarize', style: TextStyle(fontSize: 12)),
-                      ],
-                    ),
-                  ],
+              InkWell(
+                onTap: _showChapterSelection,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text(
+                    chapterName,
+                    style: const TextStyle(fontSize: 16),
+                  ),
                 ),
               ),
+
+              IconButton(
+                icon: const Icon(Icons.arrow_circle_right, size: 40),
+                onPressed: () => _changePage(1),
+              ),
+
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.summarize),
+                    onPressed: _summarizeContent,
+                    tooltip: 'Summarize',
+                  ),
+                  const Text('Summarize', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -785,9 +887,7 @@ class SummaryModal extends StatelessWidget {
       title: const Text('Summary'),
       content: SizedBox(
         width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: MarkdownBody(data: content),
-        ),
+        child: SingleChildScrollView(child: MarkdownBody(data: content)),
       ),
       actions: [
         TextButton(
@@ -822,11 +922,12 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
   void initState() {
     super.initState();
     _chatService = ChatService();
-    
+
     // Initial summary message
     _messages.add({'role': 'assistant', 'content': ''});
-    
-    _subscription = _chatService.streamResponse(widget.prompt, useHistory: false).listen(
+
+    _subscription =
+        _chatService.streamResponse(widget.prompt, useHistory: false).listen(
       (chunk) {
         setState(() {
           final lastMsg = _messages.last;
@@ -907,7 +1008,7 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
         return '**Archie**: ${m['content']}';
       }
     }).toList();
-    
+
     await _chatService.saveCurrentChat(displayMessages, title: widget.title);
   }
 
@@ -929,12 +1030,14 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
     final size = MediaQuery.of(context).size;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     // Explicit background colors for better contrast
-    final modalBackgroundColor = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final modalBackgroundColor =
+        isDark ? const Color(0xFF2C2C2C) : Colors.white;
     final userBubbleColor = isDark ? const Color(0xFF3D3D3D) : Colors.blue[50];
-    final textFieldFillColor = isDark ? const Color(0xFF1E1E1E) : Colors.grey[100];
-    
+    final textFieldFillColor =
+        isDark ? const Color(0xFF1E1E1E) : Colors.grey[100];
+
     // Ensure icon color is visible against the background
     final iconColor = isDark ? Colors.white : theme.primaryColor;
 
@@ -943,26 +1046,37 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
       backgroundColor: modalBackgroundColor,
       surfaceTintColor: Colors.transparent, // Disable Material 3 tint
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 0), // Removed top padding
+      contentPadding: const EdgeInsets.fromLTRB(
+        24,
+        0,
+        24,
+        0,
+      ), // Removed top padding
       content: SizedBox(
         width: size.width * 0.9,
         height: size.height * 0.6,
         child: Column(
           children: [
             Expanded(
-              child: _messages.isEmpty || (_messages.length == 1 && _messages.first['content']!.isEmpty && _isStreaming)
+              child: _messages.isEmpty ||
+                      (_messages.length == 1 &&
+                          _messages.first['content']!.isEmpty &&
+                          _isStreaming)
                   ? const Center(child: CircularProgressIndicator())
                   : ListView.builder(
                       controller: _scrollController,
-                      padding: const EdgeInsets.only(top: 10), // Minimal top padding for list
+                      padding: const EdgeInsets.only(
+                        top: 10,
+                      ), // Minimal top padding for list
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
                         final msg = _messages[index];
                         final isUser = msg['role'] == 'user';
                         final content = msg['content'] ?? '';
-                        
+
                         // Don't render empty assistant messages
-                        if (!isUser && content.isEmpty) return const SizedBox.shrink();
+                        if (!isUser && content.isEmpty)
+                          return const SizedBox.shrink();
 
                         if (isUser) {
                           // User message bubble
@@ -990,26 +1104,38 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
                         } else {
                           // Assistant message (Markdown)
                           return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4.0), // Reduced vertical padding
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 4.0,
+                            ), // Reduced vertical padding
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 MarkdownBody(
                                   data: content,
-                                  styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                                  styleSheet: MarkdownStyleSheet.fromTheme(
+                                    theme,
+                                  ).copyWith(
                                     p: theme.textTheme.bodyMedium,
-                                    blockquote: theme.textTheme.bodyMedium!.copyWith(
-                                      color: isDark ? Colors.grey[300] : Colors.grey[700],
+                                    blockquote:
+                                        theme.textTheme.bodyMedium!.copyWith(
+                                      color: isDark
+                                          ? Colors.grey[300]
+                                          : Colors.grey[700],
                                       fontStyle: FontStyle.italic,
                                     ),
-                                    code: theme.textTheme.bodySmall!.copyWith(
-                                      backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+                                    code: theme.textTheme.bodyMedium!.copyWith(
+                                      backgroundColor: Colors.transparent,
+                                    ),
+                                    codeblockDecoration: const BoxDecoration(
+                                      color: Colors.transparent,
                                     ),
                                   ),
                                 ),
                                 const SizedBox(height: 8),
                                 const AiDisclaimer(compact: true),
-                                const Divider(height: 24), // Reduced divider height
+                                const Divider(
+                                  height: 24,
+                                ), // Reduced divider height
                               ],
                             ),
                           );
@@ -1017,11 +1143,14 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
                       },
                     ),
             ),
-            if (_isStreaming && (_messages.length > 1 || (_messages.isNotEmpty && _messages.first['content']!.isNotEmpty)))
-               Padding(
+            if (_isStreaming &&
+                (_messages.length > 1 ||
+                    (_messages.isNotEmpty &&
+                        _messages.first['content']!.isNotEmpty)))
+              Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: LinearProgressIndicator(
-                  backgroundColor: Colors.transparent, 
+                  backgroundColor: Colors.transparent,
                   valueColor: AlwaysStoppedAnimation<Color>(iconColor),
                 ),
               ),
@@ -1039,7 +1168,10 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       filled: true,
                       fillColor: textFieldFillColor,
                     ),

@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/bible_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/local_storage_service.dart';
+import '../models/user_settings_enums.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -458,6 +459,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }
                           },
                         );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          // ── AI Personality & Context ─────────────────────────────────────
+          ExpansionTile(
+            title: const Text('AI Personality & Context'),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Denomination',
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<Denomination>(
+                      value: settingsProvider.denomination,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        helperText:
+                            'Influences the theological perspective of the AI.',
+                      ),
+                      items: Denomination.values
+                          .map((d) => DropdownMenuItem(
+                                value: d,
+                                child: Text(d.label),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          settingsProvider.updateDenomination(value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Result Type',
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<AIContext>(
+                      value: settingsProvider.aiContext,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        helperText:
+                            'Determines the style and depth of the response.',
+                      ),
+                      items: AIContext.values
+                          .map((c) => DropdownMenuItem(
+                                value: c,
+                                child: Text(c.label),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          settingsProvider.updateAIContext(value);
+                        }
                       },
                     ),
                   ],

@@ -10,6 +10,7 @@ import 'church_provider.dart';
 // add near the other imports
 import '../shared/helpers/color_helper_stub.dart'
     if (dart.library.html) '../shared/helpers/color_helper_web.dart';
+import '../models/user_settings_enums.dart';
 
 class SettingsProvider with ChangeNotifier {
   MaterialColor? _currentColor;
@@ -31,9 +32,15 @@ class SettingsProvider with ChangeNotifier {
   // Gemini API settings
   String? _geminiApiKey;
   String _geminiModel = 'gemini-2.5-flash';
+  
+  // AI Identity Settings
+  Denomination _denomination = Denomination.nondenominational;
+  AIContext _aiContext = AIContext.devotional;
 
   String? get geminiApiKey => _geminiApiKey;
   String get geminiModel => _geminiModel;
+  Denomination get denomination => _denomination;
+  AIContext get aiContext => _aiContext;
 
   static const List<String> availableGeminiModels = [
     'gemini-2.5-flash',
@@ -106,6 +113,9 @@ class SettingsProvider with ChangeNotifier {
     // Load Gemini settings
     _geminiApiKey = prefs.getString('geminiApiKey');
     _geminiModel = prefs.getString('geminiModel') ?? 'gemini-2.5-flash';
+    
+    _denomination = await settingsService.loadDenomination();
+    _aiContext = await settingsService.loadAIContext();
 
     final token = prefs.getString('token');
     final tokenExpiry = prefs.getInt('tokenExpiry') ?? 0;
@@ -294,6 +304,18 @@ class SettingsProvider with ChangeNotifier {
     _geminiModel = model;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('geminiModel', model);
+    notifyListeners();
+  }
+
+  Future<void> updateDenomination(Denomination denom) async {
+    _denomination = denom;
+    await settingsService.saveDenomination(denom);
+    notifyListeners();
+  }
+
+  Future<void> updateAIContext(AIContext ctx) async {
+    _aiContext = ctx;
+    await settingsService.saveAIContext(ctx);
     notifyListeners();
   }
 

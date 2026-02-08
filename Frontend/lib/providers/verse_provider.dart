@@ -20,12 +20,12 @@ class VerseProvider with ChangeNotifier {
     // Prevent multiple initializations
     if (_hasInitialized) return;
     _hasInitialized = true;
-    
+
     isIniting = true;
     notifyListeners();
-    
+
     await fetchSavedVerses(reset: true);
-    
+
     isIniting = false;
     notifyListeners();
   }
@@ -36,7 +36,8 @@ class VerseProvider with ChangeNotifier {
     hasMoreSavedVerses = false;
   }
 
-  Future<void> saveVerse(String verseId, String text, {String note = ''}) async {
+  Future<void> saveVerse(String verseId, String text,
+      {String note = ''}) async {
     // Check if already saved
     if (savedVerses.any((verse) => verse.verseId == verseId)) {
       return;
@@ -69,7 +70,8 @@ class VerseProvider with ChangeNotifier {
     return savedVerse.id.isNotEmpty ? savedVerse.id : null;
   }
 
-  Future<void> fetchSavedVerses({bool reset = false, bool loading = true}) async {
+  Future<void> fetchSavedVerses(
+      {bool reset = false, bool loading = true}) async {
     if (reset) {
       savedVerses = [];
     }
@@ -98,5 +100,22 @@ class VerseProvider with ChangeNotifier {
     await LocalStorageService.deleteHighlightByVerseId(verseId);
     savedVerses.removeWhere((verse) => verse.verseId == verseId);
     notifyListeners();
+  }
+
+  Future<void> updateVerseNote(String highlightId, String? note) async {
+    await LocalStorageService.updateHighlightNote(highlightId, note);
+
+    final index = savedVerses.indexWhere((verse) => verse.id == highlightId);
+    if (index != -1) {
+      final old = savedVerses[index];
+      savedVerses[index] = LocalHighlight(
+        id: old.id,
+        verseId: old.verseId,
+        content: old.content,
+        note: note,
+        createdAt: old.createdAt,
+      );
+      notifyListeners();
+    }
   }
 }

@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/saved_chat.dart';
+import '../models/user_settings_enums.dart'; // import enums
+import 'settings_service.dart';
 
 class ChatService {
   final String _apiBase = 'https://api.bybl.dev/api';
@@ -17,8 +19,77 @@ class ChatService {
   String? _currentChatId;
   String? get currentChatId => _currentChatId;
 
-  static const String _systemPrompt =
-      "Your name is archie. You are a Christian AI pink angel/blob thing that lives inside of a bible app called bybl. Answer the user's questions from a Christian perspective. You are a bible scholar, so while you should keep Christian values, your results should be slightly less biased towards conservative literalism. Never curse.  Cite Bible books/chapters/verses (use lesser‑known ones when possible). Don't repeat the user's request at the top of your reply, don't label the response, and don't repeat your own answers.";
+  // REMOVED static const _systemPrompt
+  
+  Future<String> _buildSystemPrompt() async {
+    final prefs = await SharedPreferences.getInstance();
+    final settingsService = SettingsService(); // Instantiate to load enums
+    
+    final denom = await settingsService.loadDenomination();
+    final context = await settingsService.loadAIContext();
+    
+    String prompt = "Your name is archie. You are a Christian AI pink angel/blob thing that lives inside of a bible app called bybl. ";
+    
+    prompt += "You are assisting a user who identifies as ${denom.label}. ";
+    prompt += "Provide answers that are ${context.label}. ";
+    
+    if (context == AIContext.academic || context == AIContext.linguistic) {
+      prompt += "Focus on historical context, original languages, and critical scholarship. ";
+    } else if (context == AIContext.devotional || context == AIContext.pastoral) {
+      prompt += "Focus on spiritual application, encouragement, and faithful interpretation. ";
+    }
+    
+    prompt += "Always provide the relevant NRSVue verses to give context. ";
+    prompt += "However, if the user asks for a summary of an entire chapter, do NOT provide the full chapter text; only cite a few key verses. ";
+    prompt += "When analyzing texts, provide the original Greek or Hebrew keywords and their meanings to deepen the user's understanding. ";
+    prompt += "Never curse. ";
+    
+    if (denom == Denomination.catholic) {
+      prompt += "Be respectful of Catholic tradition and the Deuterocanon. ";
+    } else if (denom == Denomination.evangelical) {
+      prompt += "Emphasize the authority of Scripture and personal relationship with God. ";
+    } else if (denom == Denomination.atheist) {
+       prompt += "Be respectful of skepticism and focus on literary/historical analysis without assuming belief. ";
+    } else if (denom == Denomination.orthodox || denom == Denomination.copticOrthodox) {
+       prompt += "Emphasize the Church Fathers, the Septuagint, and Holy Tradition. ";
+    } else if (denom == Denomination.seventhDayAdventist) {
+       prompt += "Be respectful of the Sabbath, wholeness, and the Second Coming. ";
+    } else if (denom == Denomination.latterDaySaint) {
+       prompt += "Be respectful of Latter-day Saint beliefs and terminology. ";
+    } else if (denom == Denomination.messianicJewish) {
+       prompt += "Emphasize the Jewish roots of the faith and the connection between the Tanakh and the New Testament. ";
+    } else if (denom == Denomination.quaker) {
+       prompt += "Emphasize the Inner Light, simplicity, and peace. ";
+    } else if (denom == Denomination.anglican || denom == Denomination.mainlineProtestant) {
+       prompt += "Balance scripture, tradition, and reason. ";
+    } else if (denom == Denomination.reformed || denom == Denomination.presbyterian) {
+       prompt += "Emphasize the sovereignty of God, covenant theology, and the doctrines of grace. ";
+    } else if (denom == Denomination.pentecostal || denom == Denomination.assemblyOfGod) {
+       prompt += "Emphasize the work of the Holy Spirit, spiritual gifts, and personal experience of God. ";
+    } else if (denom == Denomination.lutheran) {
+       prompt += "Emphasize justification by grace through faith and the distinction between Law and Gospel. ";
+    } else if (denom == Denomination.baptist) {
+       prompt += "Emphasize believer's baptism, local church autonomy, and the priesthood of all believers. ";
+    } else if (denom == Denomination.methodist || denom == Denomination.nazarene) {
+       prompt += "Emphasize holiness, sanctification, and prevenient grace. ";
+    } else if (denom == Denomination.churchOfChrist) {
+       prompt += "Emphasize a return to New Testament Christianity and silence where the Bible is silent. ";
+    } else if (denom == Denomination.anabaptist) {
+       prompt += "Emphasize discipleship, non-violence, and community. ";
+    } else if (denom == Denomination.jewish) {
+       prompt += "Be respectful of Jewish tradition, the Torah, and Talmudic commentary. Contextualize from a perspective of interfaith dialogue. ";
+    } else if (denom == Denomination.muslim) {
+       prompt += "Be respectful of Islamic beliefs while explaining the Christian perspective clearly and kindly. ";
+    } else if (denom == Denomination.agnostic) {
+       prompt += "Be explanatory and accessible, assuming good faith curiosity without demanding commitment. ";
+    } else if (denom == Denomination.nondenominational) {
+       prompt += "Focus on " + (context == AIContext.academic ? "ecumenical" : "broad evangelical") + " Christian themes without denominational distinctives. ";
+    }
+
+    prompt += "Cite Bible books/chapters/verses (use lesser‑known ones when possible). Don't repeat the user's request at the top of your reply, don't label the response, and don't repeat your own answers.";
+    
+    return prompt;
+  }
 
   // ─────────────────────────────── CHAT PERSISTENCE ───────────────────────────
 
@@ -93,8 +164,8 @@ class ChatService {
       _clearHistory();
     }
     
-    // Save the new empty chat
-    await saveChat(chat);
+    // Save the new empty chat - REMOVED to prevent blank chats in history
+    // await saveChat(chat);
     
     // Save current chat ID
     final prefs = await SharedPreferences.getInstance();
@@ -258,7 +329,7 @@ class ChatService {
       final model = GenerativeModel(
         model: modelName,
         apiKey: apiKey,
-        systemInstruction: Content.text(_systemPrompt),
+        systemInstruction: Content.text(await _buildSystemPrompt()),
       );
 
       Stream<GenerateContentResponse> response;
@@ -301,8 +372,8 @@ class ChatService {
   Stream<String> _streamBackendResponse(String userMessage, String? token, {bool useHistory = true}) async* {
     // Note: The backend expects the current message to be IN the history list if using history
     final messagesToSend = useHistory
-        ? _buildMessagePayload(_conversationHistory)
-        : _buildMessagePayload([{'role': 'user', 'content': userMessage}]);
+        ? await _buildMessagePayload(_conversationHistory)
+        : await _buildMessagePayload([{'role': 'user', 'content': userMessage}]);
 
     final request = http.Request(
       'POST',
@@ -379,8 +450,8 @@ class ChatService {
       // Backend
       final token = prefs.getString('token');
       final messagesToSend = useHistory
-          ? _buildMessagePayload(_conversationHistory)
-          : _buildMessagePayload([{'role': 'user', 'content': userMessage}]);
+          ? await _buildMessagePayload(_conversationHistory)
+          : await _buildMessagePayload([{'role': 'user', 'content': userMessage}]);
 
       final response = await http.post(
         Uri.parse('$_apiBase/chat'),
@@ -414,7 +485,7 @@ class ChatService {
       final model = GenerativeModel(
         model: modelName,
         apiKey: apiKey,
-        systemInstruction: Content.text(_systemPrompt),
+        systemInstruction: Content.text(await _buildSystemPrompt()),
       );
 
       if (useHistory) {
@@ -443,12 +514,12 @@ class ChatService {
     }
   }
 
-  List<Map<String, String>> _buildMessagePayload(
-      List<Map<String, String>> history) {
+  Future<List<Map<String, String>>> _buildMessagePayload(
+      List<Map<String, String>> history) async {
     return [
       {
         'role': 'system',
-        'content': _systemPrompt
+        'content': await _buildSystemPrompt()
       },
       ...history
     ];

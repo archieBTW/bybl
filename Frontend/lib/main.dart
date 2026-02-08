@@ -2,12 +2,16 @@ import 'package:TheWord/providers/bible_provider.dart';
 import 'package:TheWord/providers/settings_provider.dart';
 import 'package:TheWord/providers/verse_provider.dart';
 import 'package:TheWord/screens/main_app.dart';
+import 'package:TheWord/services/tts_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Start TTS initialization early
+  TtsService().init();
 
   runApp(
     MultiProvider(
@@ -50,7 +54,6 @@ class ByblApp extends StatelessWidget {
           },
           title: 'bybl',
           themeMode: settings.currentThemeMode,
-
           darkTheme: ThemeData(
             fontFamily: 'NotoSans',
             brightness: Brightness.dark,
