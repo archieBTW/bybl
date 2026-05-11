@@ -40,6 +40,8 @@ dependencies:
   shared_preferences: ^2.2.3
   flutter_dotenv: ^5.1.0
   flutter_markdown: ^0.7.2
+  google_maps_flutter: ^2.5.0
+
   flutter_tts: ^4.0.2
   flutter_launcher_icons: ^0.13.1
   easy_autocomplete: ^1.6.0
@@ -52,11 +54,14 @@ dependencies:
   image_cropper: ^9.1.0
   crop_your_image: ^2.0.0
   string_similarity: ^2.1.1
-  sentry_flutter: ^8.14.2
+
   flutter_local_notifications: ^19.1.0
   file_picker: ^8.0.0+1
   path_provider: ^2.1.2
   share_plus: ^10.0.2
+  sherpa_onnx: ^1.12.23
+  audioplayers: ^6.5.1
+  archive: ^4.0.7
 
 flutter_icons:
   android: true
@@ -83,6 +88,12 @@ flutter:
     - assets/icon/app_icon.png
     - assets/icon/cross_nav.png
     - assets/icon/archie.png
+    - assets/models/
+    - assets/models/model.onnx
+    - assets/models/tokens.txt
+    - assets/models/model.json
+    - assets/models/espeak-ng-data.zip
+    - assets/pois/
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

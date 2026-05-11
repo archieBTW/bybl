@@ -9,7 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/friend_provider.dart';
 import '../providers/settings_provider.dart';
@@ -265,7 +265,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         padding: const EdgeInsets.all(8.0),
         children: [
           // const Text('Suggested Friends',
-              // style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          // style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (friendProvider.suggestedFriends.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8.0),
@@ -313,7 +313,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         padding: const EdgeInsets.all(8.0),
         children: [
           // const Text('My Friends',
-              // style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          // style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (friendProvider.friends.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8.0),
@@ -351,7 +351,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
     );
   }
-
 }
 
 class CircularAvatarCropper extends StatefulWidget {

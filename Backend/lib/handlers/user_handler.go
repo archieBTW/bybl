@@ -154,18 +154,20 @@ func CreateAdminUser(db *gorm.DB) {
 
 	passwordHash, _ := bcrypt.GenerateFromPassword([]byte("hackerman"), bcrypt.DefaultCost)
 	admin := models.User{
-		Email:           "admin@example.com",
-		Username:        "Tom",
-		PasswordHash:    string(passwordHash),
-		PublicProfile:   true,
-		PrimaryColor:    0xFF000000, // ARGB for black
-		HighlightColor:  0xFFFF0000, // ARGB for red
-		DarkMode:        true,
-		TranslationId:   "ESV",
-		TranslationName: "English Standard Version",
+		Email:               "admin@example.com",
+		Username:            "Tom",
+		PasswordHash:        string(passwordHash),
+		PublicProfile:       false,      // Admin doesn't need public profile by default
+		PrimaryColor:        4278190080, // ARGB for black
+		HighlightColor:      4294901760, // ARGB for red
+		DarkMode:            true,
+		TranslationId:       "ESV",
+		TranslationName:     "English Standard Version",
+		IsAdmin:             true,
+		ForcePasswordChange: true,
 	}
 	db.Create(&admin)
-	log.Println("Admin user created or already exists.")
+	log.Println("Admin user created with default password 'hackerman'.")
 }
 
 func GetUser(db *gorm.DB) gin.HandlerFunc {

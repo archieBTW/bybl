@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/cupertino.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/friend.dart';

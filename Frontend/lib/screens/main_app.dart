@@ -10,6 +10,7 @@ import '../providers/settings_provider.dart';
 import 'book_list.dart';
 import 'settings_screen.dart';
 import '../shared/widgets/dynamic_search_bar.dart';
+import 'map_screen.dart';
 
 class MainAppScreen extends StatefulWidget {
   const MainAppScreen({Key? key}) : super(key: key);
@@ -31,11 +32,11 @@ class _MainAppScreenState extends State<MainAppScreen> {
     setState(() {
       isInitRunning = true;
     });
-    
+
     await settingsProvider.loadSettings();
     await bibleProvider.fetchBooks(
         settingsProvider.currentTranslationId ?? 'bba9f40183526463-01');
-    
+
     setState(() {
       isInited = true;
       isInitRunning = false;
@@ -84,11 +85,19 @@ class _MainAppScreenState extends State<MainAppScreen> {
     );
   }
 
+  void _navigateToMap() {
+    Navigator.pop(context); // Close drawer
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MapScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     settingsProvider = Provider.of<SettingsProvider>(context);
     bibleProvider = Provider.of<BibleProvider>(context);
-    
+
     if (!isInited && !isInitRunning) {
       init();
     }
@@ -123,10 +132,11 @@ class _MainAppScreenState extends State<MainAppScreen> {
           child: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+              children: [
                 const SizedBox(height: 16),
                 ListTile(
-                  leading: Icon(Icons.bookmarks_outlined, color: drawerTextColor),
+                  leading:
+                      Icon(Icons.bookmarks_outlined, color: drawerTextColor),
                   title: Text(
                     'Bookmarks',
                     style: TextStyle(color: drawerTextColor),
@@ -134,7 +144,16 @@ class _MainAppScreenState extends State<MainAppScreen> {
                   onTap: _navigateToBookmarks,
                 ),
                 ListTile(
-                  leading: Icon(Icons.chat_bubble_outline, color: drawerTextColor),
+                  leading: Icon(Icons.map_outlined, color: drawerTextColor),
+                  title: Text(
+                    'Bible Map',
+                    style: TextStyle(color: drawerTextColor),
+                  ),
+                  onTap: _navigateToMap,
+                ),
+                ListTile(
+                  leading:
+                      Icon(Icons.chat_bubble_outline, color: drawerTextColor),
                   title: Text(
                     'Ask Archie',
                     style: TextStyle(color: drawerTextColor),
@@ -142,7 +161,8 @@ class _MainAppScreenState extends State<MainAppScreen> {
                   onTap: _navigateToChat,
                 ),
                 ListTile(
-                  leading: Icon(Icons.settings_outlined, color: drawerTextColor),
+                  leading:
+                      Icon(Icons.settings_outlined, color: drawerTextColor),
                   title: Text(
                     'Settings',
                     style: TextStyle(color: drawerTextColor),
@@ -155,7 +175,8 @@ class _MainAppScreenState extends State<MainAppScreen> {
         ),
         appBar: AppBar(
           toolbarHeight: 56,
-          backgroundColor: currentColor ?? (isDark ? Colors.black : Colors.white),
+          backgroundColor:
+              currentColor ?? (isDark ? Colors.black : Colors.white),
           elevation: 0,
           automaticallyImplyLeading: false,
           titleSpacing: 0,

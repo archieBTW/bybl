@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:TheWord/services/local_storage_service.dart';
 
 class BibleProvider with ChangeNotifier {
   final String bereanBibleId = 'bba9f40183526463-01';
@@ -13,6 +13,7 @@ class BibleProvider with ChangeNotifier {
   List<dynamic> _books = [];
   List<dynamic> _filteredBooks = [];
   Map<String, List<dynamic>> _chapters = {};
+  Set<String> _readChapters = {};
 
   bool isLoadingBooks = false;
   bool isLoadingChapters = false;
@@ -22,6 +23,25 @@ class BibleProvider with ChangeNotifier {
   List<dynamic> get filteredBooks =>
       _filteredBooks.isNotEmpty ? _filteredBooks : _books;
   Map<String, List<dynamic>> get chapters => _chapters;
+  Set<String> get readChapters => _readChapters;
+
+  BibleProvider() {
+    _loadReadChapters();
+  }
+
+  Future<void> _loadReadChapters() async {
+    final chapters = await LocalStorageService.getReadChapters();
+    _readChapters = chapters.toSet();
+    notifyListeners();
+  }
+
+  Future<void> markChapterAsRead(String chapterId) async {
+    if (!_readChapters.contains(chapterId)) {
+      await LocalStorageService.markChapterAsRead(chapterId);
+      _readChapters.add(chapterId);
+      notifyListeners();
+    }
+  }
 
   Future<void> fetchTranslations() async {
     final response = await http.get(Uri.parse('$_baseUrl/bible/translations'));

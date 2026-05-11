@@ -9,7 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:TheWord/providers/church_provider.dart';
 import 'package:TheWord/models/small_group.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SmallGroupDetailScreen extends StatefulWidget {

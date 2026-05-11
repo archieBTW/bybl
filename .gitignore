@@ -87,3 +87,22 @@ firebase-debug.log
 # Crashlytics (optional)
 ios/Pods/
 android/.gradle/
+
+Frontend/tmp_check_vits/
+Frontend/tmp_patch/
+Frontend/windows/runner/runner.exe.manifest.xml
+QUICK_START.md
+copy-to-server.sh
+deploy.sh
+vits-mms-eng.tar.bz2
+vits-mms-eng/
+vits-piper-en_GB-alan-medium.tar.bz2
+vits-piper-en_GB-alan-medium/
+vits-piper-en_US-lessac-medium.tar.bz2
+vits-piper-en_US-lessac-medium/
+vits-piper-en_US-ryan-medium.tar.bz2
+vits-piper-en_US-ryan-medium/
+Backend/Backend.exe
+DEPLOYMENT.md
+Frontend/assets/models/
+Frontend/assets/models/temp_espeak_check/

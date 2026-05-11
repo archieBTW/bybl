@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/settings_service.dart';
 import 'dart:convert';
@@ -32,7 +32,7 @@ class SettingsProvider with ChangeNotifier {
   // Gemini API settings
   String? _geminiApiKey;
   String _geminiModel = 'gemini-2.5-flash';
-  
+
   // AI Identity Settings
   Denomination _denomination = Denomination.nondenominational;
   AIContext _aiContext = AIContext.devotional;
@@ -113,7 +113,7 @@ class SettingsProvider with ChangeNotifier {
     // Load Gemini settings
     _geminiApiKey = prefs.getString('geminiApiKey');
     _geminiModel = prefs.getString('geminiModel') ?? 'gemini-2.5-flash';
-    
+
     _denomination = await settingsService.loadDenomination();
     _aiContext = await settingsService.loadAIContext();
 

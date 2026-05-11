@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bible Map Admin</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+
+        .list-panel {
+            flex: 1;
+            border-right: 1px solid #ccc;
+            padding-right: 20px;
+        }
+
+        .edit-panel {
+            flex: 2;
+            padding-left: 20px;
+        }
+
+        .item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+
+        .item:hover {
+            background-color: #f0f0f0;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input,
+        textarea,
+        select {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .delete-btn {
+            background-color: #dc3545;
+            margin-left: 10px;
+        }
+
+        .delete-btn:hover {
+            background-color: #a71d2a;
+        }
+
+        img.preview {
+            max-width: 200px;
+            margin-top: 10px;
+            display: block;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 300px;
+            border-radius: 5px;
+        }
+
+        .modal h2 {
+            margin-top: 0;
+        }
+
+        .error {
+            color: red;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>Bible Map Admin Panel</h1>
+        <button onclick="logout()" id="logout-btn" style="display:none;">Logout</button>
+    </div>
+
+    <div class="container" id="main-content" style="display:none;">
+        <div class="list-panel">
+            <h2>Paths</h2>
+            <div id="path-list">Loading...</div>
+            <button onclick="showAddPathForm()">Add New Path</button>
+
+            <h2>POIs</h2>
+            <select id="path-filter" onchange="filterPOIs()">
+                <option value="">Select Path to View POIs</option>
+            </select>
+            <div id="poi-list">Select a path...</div>
+            <button onclick="showAddPOIForm()">Add New POI</button>
+        </div>
+
+        <div class="edit-panel" id="edit-panel">
+            <h3>Select an item to edit or create new.</h3>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal">
+        <div class="modal-content">
+            <h2>Admin Login</h2>
+            <div id="login-error" class="error"></div>
+            <form onsubmit="handleLogin(event)">
+                <div class="form-group"><label>Username</label><input type="text" name="username" required></div>
+                <div class="form-group"><label>Password</label><input type="password" name="password" required></div>
+                <button type="submit">Login</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" class="modal">
+        <div class="modal-content">
+            <h2>Change Password</h2>
+            <p>You must change your password to continue.</p>
+            <div id="cp-error" class="error"></div>
+            <form onsubmit="handleChangePassword(event)">
+                <div class="form-group"><label>Old Password</label><input type="password" name="oldPassword" required>
+                </div>
+                <div class="form-group"><label>New Password</label><input type="password" name="newPassword" required>
+                </div>
+                <button type="submit">Change Password</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api/map';
+        let paths = [];
+        let pois = [];
+        let token = localStorage.getItem('adminToken');
+
+        // Auth Logic
+        function checkAuth() {
+            if (!token) {
+                showLoginModal();
+            } else {
+                // Verify token validity and forced password change
+                fetch('/api/admin/check-auth', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                }).then(res => {
+                    if (res.ok) return res.json();
+                    throw new Error('Unauthorized');
+                }).then(data => {
+                    if (data.forcePasswordChange) {
+                        showChangePasswordModal();
+                    } else {
+                        showMainContent();
+                        fetchMapData();
+                    }
+                }).catch(() => {
+                    logout();
+                });
+            }
+        }
+
+        function showLoginModal() {
+            document.getElementById('login-modal').style.display = 'block';
+            document.getElementById('main-content').style.display = 'none';
+        }
+
+        function showChangePasswordModal() {
+            document.getElementById('change-password-modal').style.display = 'block';
+            document.getElementById('login-modal').style.display = 'none';
+            document.getElementById('main-content').style.display = 'none';
+        }
+
+        function showMainContent() {
+            document.getElementById('login-modal').style.display = 'none';
+            document.getElementById('change-password-modal').style.display = 'none';
+            document.getElementById('main-content').style.display = 'flex';
+            document.getElementById('logout-btn').style.display = 'block';
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const res = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+
+                if (res.ok) {
+                    token = result.token;
+                    localStorage.setItem('adminToken', token);
+                    if (result.forcePasswordChange) {
+                        showChangePasswordModal();
+                    } else {
+                        showMainContent();
+                        fetchMapData();
+                    }
+                } else {
+                    document.getElementById('login-error').textContent = result.error;
+                }
+            } catch (err) {
+                document.getElementById('login-error').textContent = 'Login failed';
+            }
+        }
+
+        async function handleChangePassword(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const res = await fetch('/api/admin/change-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+
+                if (res.ok) {
+                    alert('Password changed successfully');
+                    showMainContent();
+                    fetchMapData();
+                } else {
+                    document.getElementById('cp-error').textContent = result.error;
+                }
+            } catch (err) {
+                document.getElementById('cp-error').textContent = 'Password change failed';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('adminToken');
+            token = null;
+            location.reload();
+        }
+
+        // Map Logic (Updated with Auth Headers)
+        function getAuthHeaders() {
+            return {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        async function fetchMapData() {
+            const res = await fetch('/api/map/data'); // Public endpoint
+            paths = await res.json();
+            renderPaths();
+            updatePathFilter();
+        }
+
+        function renderPaths() {
+            const list = document.getElementById('path-list');
+            list.innerHTML = '';
+            paths.forEach(path => {
+                const div = document.createElement('div');
+                div.className = 'item';
+                div.textContent = path.name;
+                div.onclick = () => showEditPathForm(path);
+                list.appendChild(div);
+            });
+        }
+
+        function updatePathFilter() {
+            const select = document.getElementById('path-filter');
+            select.innerHTML = '<option value="">Select Path to View POIs</option>';
+            paths.forEach(path => {
+                const option = document.createElement('option');
+                option.value = path.ID;
+                option.textContent = path.name;
+                select.appendChild(option);
+            });
+        }
+
+        function filterPOIs() {
+            const pathId = parseInt(document.getElementById('path-filter').value);
+            const list = document.getElementById('poi-list');
+            list.innerHTML = '';
+
+            if (!pathId) return;
+
+            const path = paths.find(p => p.ID === pathId);
+            if (path && path.pois) {
+                path.pois.sort((a, b) => a.pathPointIndex - b.pathPointIndex).forEach(poi => {
+                    const div = document.createElement('div');
+                    div.className = 'item';
+                    div.textContent = `${poi.pathPointIndex}: ${poi.title}`;
+                    div.onclick = () => showEditPOIForm(poi);
+                    list.appendChild(div);
+                });
+            } else {
+                list.innerHTML = 'No POIs found.';
+            }
+        }
+
+        // Forms ... (Same structure but calls now include token)
+        function showAddPathForm() {
+            const panel = document.getElementById('edit-panel');
+            panel.innerHTML = `
+                <h3>Add New Path</h3>
+                <form onsubmit="savePath(event)">
+                    <div class="form-group"><label>Slug (ID)</label><input type="text" name="slug" required></div>
+                    <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
+                    <div class="form-group"><label>Description</label><textarea name="description" rows="3"></textarea></div>
+                    <div class="form-group"><label>Points (JSON)</label><textarea name="points_json" rows="5">[]</textarea></div>
+                    <button type="submit">Create Path</button>
+                </form>
+            `;
+        }
+
+        function showEditPathForm(path) {
+            const panel = document.getElementById('edit-panel');
+            panel.innerHTML = `
+                <h3>Edit Path: ${path.name}</h3>
+                <form onsubmit="updatePath(event, ${path.ID})">
+                    <div class="form-group"><label>Slug (ID)</label><input type="text" name="slug" value="${path.id}" required></div>
+                    <div class="form-group"><label>Name</label><input type="text" name="name" value="${path.name}" required></div>
+                    <div class="form-group"><label>Description</label><textarea name="description" rows="3">${path.description}</textarea></div>
+                    <div class="form-group"><label>Points (JSON)</label><textarea name="points_json" rows="5">${JSON.stringify(path.points || [], null, 2)}</textarea></div>
+                    <button type="submit">Update Path</button>
+                    <button type="button" class="delete-btn" onclick="deletePath(${path.ID})">Delete Path</button>
+                </form>
+            `;
+        }
+
+        function showAddPOIForm() {
+            const pathId = document.getElementById('path-filter').value;
+            if (!pathId) { alert('Please select a path first'); return; }
+
+            const panel = document.getElementById('edit-panel');
+            panel.innerHTML = `
+                <h3>Add New POI</h3>
+                <form onsubmit="savePOI(event)">
+                    <input type="hidden" name="bibleMapPathId" value="${pathId}">
+                    <div class="form-group"><label>Slug (ID)</label><input type="text" name="slug" required></div>
+                    <div class="form-group"><label>Title</label><input type="text" name="title" required></div>
+                    <div class="form-group"><label>Description</label><textarea name="description" rows="3"></textarea></div>
+                    <div class="form-group"><label>Image URL</label><input type="text" name="imageUrl" id="imageUrl">
+                        <input type="file" onchange="uploadImage(this)">
+                        <img id="imagePreview" class="preview">
+                    </div>
+                    <div class="form-group"><label>Latitude</label><input type="number" step="any" name="latitude" required></div>
+                    <div class="form-group"><label>Longitude</label><input type="number" step="any" name="longitude" required></div>
+                    <div class="form-group"><label>Required Chapter IDs (comma separated)</label><input type="text" name="requiredChapterIds"></div>
+                    <div class="form-group"><label>Unlocked Chapter ID</label><input type="text" name="unlockedChapterId"></div>
+                    <div class="form-group"><label>Path Point Index</label><input type="number" name="pathPointIndex" required></div>
+                    <button type="submit">Create POI</button>
+                </form>
+            `;
+        }
+
+        function showEditPOIForm(poi) {
+            const panel = document.getElementById('edit-panel');
+            panel.innerHTML = `
+                <h3>Edit POI: ${poi.title}</h3>
+                <form onsubmit="updatePOI(event, ${poi.ID})">
+                    <input type="hidden" name="bibleMapPathId" value="${poi.bibleMapPathId}">
+                    <div class="form-group"><label>Slug (ID)</label><input type="text" name="slug" value="${poi.id}" required></div>
+                    <div class="form-group"><label>Title</label><input type="text" name="title" value="${poi.title}" required></div>
+                    <div class="form-group"><label>Description</label><textarea name="description" rows="3">${poi.description}</textarea></div>
+                     <div class="form-group"><label>Image URL</label><input type="text" name="imageUrl" id="imageUrl" value="${poi.imageUrl}">
+                        <input type="file" onchange="uploadImage(this)">
+                        <img id="imagePreview" class="preview" src="${poi.imageUrl}">
+                    </div>
+                    <div class="form-group"><label>Latitude</label><input type="number" step="any" name="latitude" value="${poi.latitude}" required></div>
+                    <div class="form-group"><label>Longitude</label><input type="number" step="any" name="longitude" value="${poi.longitude}" required></div>
+                    <div class="form-group"><label>Required Chapter IDs (comma separated)</label><input type="text" name="requiredChapterIds" value="${(poi.requiredChapterIds || []).join(',')}" ></div>
+                    <div class="form-group"><label>Unlocked Chapter ID</label><input type="text" name="unlockedChapterId" value="${poi.unlockedChapterId || ''}"></div>
+                    <div class="form-group"><label>Path Point Index</label><input type="number" name="pathPointIndex" value="${poi.pathPointIndex}" required></div>
+                    <button type="submit">Update POI</button>
+                     <button type="button" class="delete-btn" onclick="deletePOI(${poi.ID})">Delete POI</button>
+                </form>
+            `;
+        }
+
+        async function uploadImage(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                const res = await fetch('/api/map/upload-image', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.url) {
+                    document.getElementById('imageUrl').value = data.url;
+                    document.getElementById('imagePreview').src = data.url;
+                }
+            } catch (e) {
+                alert('Upload failed');
+            }
+        }
+
+        async function savePath(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            try {
+                data.points = JSON.parse(data.points_json);
+            } catch (err) {
+                data.points = [];
+            }
+            delete data.points_json;
+
+            await fetch('/api/map/path', {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(data)
+            });
+            fetchMapData();
+        }
+
+        async function updatePath(e, id) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            try {
+                data.points = JSON.parse(data.points_json);
+            } catch (err) {
+                data.points = [];
+            }
+            delete data.points_json;
+
+            await fetch(`/api/map/path/${id}`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(data)
+            });
+            fetchMapData();
+        }
+
+        async function savePOI(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            data.bibleMapPathId = parseInt(data.bibleMapPathId);
+            data.pathPointIndex = parseInt(data.pathPointIndex);
+            data.latitude = parseFloat(data.latitude);
+            data.longitude = parseFloat(data.longitude);
+            data.requiredChapterIds = data.requiredChapterIds ? data.requiredChapterIds.split(',').map(s => s.trim()) : [];
+
+            await fetch('/api/map/poi', {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(data)
+            });
+            fetchMapData();
+            setTimeout(() => filterPOIs(), 500);
+        }
+
+        async function updatePOI(e, id) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            data.bibleMapPathId = parseInt(data.bibleMapPathId);
+            data.pathPointIndex = parseInt(data.pathPointIndex);
+            data.latitude = parseFloat(data.latitude);
+            data.longitude = parseFloat(data.longitude);
+            data.requiredChapterIds = data.requiredChapterIds ? data.requiredChapterIds.split(',').map(s => s.trim()) : [];
+
+            await fetch(`/api/map/poi/${id}`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(data)
+            });
+            fetchMapData();
+            setTimeout(() => filterPOIs(), 500);
+        }
+
+        async function deletePOI(id) {
+            if (!confirm('Are you sure?')) return;
+            await fetch(`/api/map/poi/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            fetchMapData();
+            setTimeout(() => filterPOIs(), 500);
+        }
+
+        async function deletePath(id) {
+            if (!confirm('Are you sure?')) return;
+            await fetch(`/api/map/path/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            fetchMapData();
+        }
+
+        checkAuth();
+    </script>
+</body>
+
+</html>

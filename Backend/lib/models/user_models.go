@@ -15,21 +15,22 @@ type UserResponse struct {
 }
 
 type User struct {
-	UserID          uint   `gorm:"primaryKey"`
-	Email           string `gorm:"unique"`
-	Username        string
-	PasswordHash    string
-	PublicProfile   bool
-	PrimaryColor    int
-	HighlightColor  int
-	DarkMode        bool
-	TranslationId   string
-	TranslationName string
-	IsAdmin         bool `gorm:"default:false"`
-	ChurchID        uint `gorm:"index"`
-	ResetCode       string
-	ResetCodeExpiry time.Time
-	AvatarURL       string
+	UserID              uint   `gorm:"primaryKey"`
+	Email               string `gorm:"unique"`
+	Username            string
+	PasswordHash        string
+	PublicProfile       bool
+	PrimaryColor        int
+	HighlightColor      int
+	DarkMode            bool
+	TranslationId       string
+	TranslationName     string
+	IsAdmin             bool `gorm:"default:false"`
+	ForcePasswordChange bool `gorm:"default:false"`
+	ChurchID            uint `gorm:"index"`
+	ResetCode           string
+	ResetCodeExpiry     time.Time
+	AvatarURL           string
 }
 
 type LoginRequest struct {

@@ -12,7 +12,7 @@ import 'package:TheWord/models/event.dart';
 import 'package:TheWord/models/message.dart';
 import 'package:TheWord/models/prayer_request.dart';
 import 'package:TheWord/screens/small_group_detail_screen.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 

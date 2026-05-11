@@ -3,7 +3,7 @@
 import 'package:TheWord/shared/widgets/editable_avatar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import '../shared/widgets/initial_avatar.dart';
 import 'package:http/http.dart' as http;

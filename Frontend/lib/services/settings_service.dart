@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_settings_enums.dart';

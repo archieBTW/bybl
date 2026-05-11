@@ -7,7 +7,7 @@ import 'package:TheWord/services/church_service.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:sentry_flutter/sentry_flutter.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ChurchProvider with ChangeNotifier {

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:TheWord/screens/settings_screen.dart';
 import 'package:TheWord/shared/widgets/highlight_text.dart';
 import 'package:TheWord/shared/widgets/api_key_setup_prompt.dart';
+import 'package:TheWord/models/bible_map_data.dart';
 import 'package:TheWord/services/local_storage_service.dart';
 import 'package:TheWord/models/local_bookmark.dart';
 import 'package:flutter/cupertino.dart';
@@ -13,6 +14,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../providers/settings_provider.dart';
+import '../providers/bible_provider.dart';
 import '../services/chat_service.dart';
 import '../services/tts_service.dart';
 import '../shared/widgets/ai_disclaimer.dart';
@@ -134,8 +136,13 @@ class ReaderScreenState extends State<ReaderScreen> {
     final translationId = widget.translationId;
 
     if (_chapterContents.containsKey(chapterId)) {
+      setState(() => isLoading = false);
+
+      // Auto-mark as read when chapter loads
       if (chapterId == widget.chapterId) {
-        setState(() => isLoading = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _markChapterAsRead(auto: true);
+        });
       }
       return;
     }
@@ -183,6 +190,11 @@ class ReaderScreenState extends State<ReaderScreen> {
     } finally {
       if (showLoading && chapterId == widget.chapterId) {
         setState(() => isLoading = false);
+
+        // Auto-mark as read when chapter loads
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _markChapterAsRead(auto: true);
+        });
       }
     }
   }
@@ -572,6 +584,64 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  void _markChapterAsRead({bool auto = false}) async {
+    final bibleProvider = Provider.of<BibleProvider>(context, listen: false);
+
+    // Get current read state
+    final bool alreadyRead =
+        bibleProvider.readChapters.contains(widget.chapterId);
+
+    if (alreadyRead) {
+      if (!auto) {
+        // Only show "Already read" if manually clicked
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Chapter already marked as read.')),
+        );
+      }
+      // Return immediately if already read.
+      // User requested: "it should only unlock if you haven't read the chapter yet"
+      // This forces the "Unlock" logic to only run ONCE (the first time it's read).
+      return;
+    }
+
+    // Mark as read
+    await bibleProvider.markChapterAsRead(widget.chapterId);
+
+    // Check for unlocks
+    final newlyRead = widget.chapterId;
+    final allRead = bibleProvider.readChapters;
+
+    List<String> unlockedPOIs = [];
+
+    for (var path in BibleMapData.paths) {
+      for (var poi in path.pois) {
+        // Check if this POI requires the chapter we just read
+        if (poi.requiredChapterIds.contains(newlyRead)) {
+          // Check if ALL requirements are now met
+          bool allMet =
+              poi.requiredChapterIds.every((id) => allRead.contains(id));
+          if (allMet) {
+            unlockedPOIs.add(poi.title);
+          }
+        }
+      }
+    }
+
+    if (unlockedPOIs.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unlocked: ${unlockedPOIs.join(", ")}!')),
+        );
+      }
+    } else if (!auto) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Chapter marked as read!')),
+        );
+      }
+    }
+  }
+
   void _summarizeContent() {
     final settingsProvider = Provider.of<SettingsProvider>(
       context,
@@ -695,6 +765,14 @@ class ReaderScreenState extends State<ReaderScreen> {
                   }
                 },
               ),
+            IconButton(
+              icon: const Icon(Icons.check_circle_outline),
+              onPressed: _markChapterAsRead,
+              tooltip: 'Mark as Read',
+              color: (settingsProvider.currentThemeMode == ThemeMode.dark)
+                  ? Colors.white
+                  : Colors.black,
+            ),
           ],
         ),
         backgroundColor: theme.scaffoldBackgroundColor,
