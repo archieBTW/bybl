@@ -331,7 +331,10 @@ class ChatService {
 
     final prefs = await SharedPreferences.getInstance();
     final geminiApiKey = prefs.getString('geminiApiKey');
-    final geminiModel = prefs.getString('geminiModel') ?? 'gemini-2.5-flash';
+    String geminiModel = prefs.getString('geminiModel') ?? 'gemini-3.8-flash';
+    if (geminiModel.contains('3.1') || geminiModel.contains('1.5')) {
+      geminiModel = 'gemini-3.8-flash';
+    }
 
     Stream<String> responseStream;
 
@@ -478,7 +481,10 @@ class ChatService {
       {bool useHistory = true, bool alreadyAddedToHistory = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final geminiApiKey = prefs.getString('geminiApiKey');
-    final geminiModel = prefs.getString('geminiModel') ?? 'gemini-2.5-flash';
+    String geminiModel = prefs.getString('geminiModel') ?? 'gemini-3.8-flash';
+    if (geminiModel.contains('3.1') || geminiModel.contains('1.5')) {
+      geminiModel = 'gemini-3.8-flash';
+    }
 
     // Update history if not already done (e.g. if called directly, not from streamResponse)
     if (useHistory && !alreadyAddedToHistory) {

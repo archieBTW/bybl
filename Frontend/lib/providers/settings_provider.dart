@@ -31,7 +31,7 @@ class SettingsProvider with ChangeNotifier {
 
   // Gemini API settings
   String? _geminiApiKey;
-  String _geminiModel = 'gemini-2.5-flash';
+  String _geminiModel = 'gemini-3.8-flash';
 
   // AI Identity Settings
   Denomination _denomination = Denomination.nondenominational;
@@ -43,10 +43,8 @@ class SettingsProvider with ChangeNotifier {
   AIContext get aiContext => _aiContext;
 
   static const List<String> availableGeminiModels = [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-3-flash-preview',
-    'gemini-3-pro-preview',
+    'gemini-3.8-flash',
+    'gemini-3.5-flash-lite',
   ];
 
   List<dynamic> _translations = [];
@@ -112,7 +110,11 @@ class SettingsProvider with ChangeNotifier {
 
     // Load Gemini settings
     _geminiApiKey = prefs.getString('geminiApiKey');
-    _geminiModel = prefs.getString('geminiModel') ?? 'gemini-2.5-flash';
+    _geminiModel = prefs.getString('geminiModel') ?? 'gemini-3.8-flash';
+    if (_geminiModel.contains('3.1') || _geminiModel.contains('1.5')) {
+      _geminiModel = 'gemini-3.8-flash';
+      await prefs.setString('geminiModel', _geminiModel);
+    }
 
     _denomination = await settingsService.loadDenomination();
     _aiContext = await settingsService.loadAIContext();
