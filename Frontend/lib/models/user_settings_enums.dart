@@ -31,16 +31,11 @@ enum Denomination {
 }
 
 enum AIContext {
-  academic('Academic/Critical'),
   devotional('Devotional/Spiritual'),
-  pastoral('Pastoral/Counseling'),
+  academic('Academic'),
   apologetic('Apologetic'),
-  historical('Historical/Cultural'),
-  linguistic('Linguistic (Greek/Hebrew)'),
-  theological('Theological (Systematic)'),
-  comparative('Comparative Religion'),
-  mystical('Mystical/Contemplative'),
-  practical('Practical Application');
+  pastoral('Pastoral/Counseling'),
+  historical('Historical/Cultural');
 
   final String label;
   const AIContext(this.label);

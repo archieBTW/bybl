@@ -6,6 +6,8 @@ class SavedChat {
   final List<ChatMessage> messages;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? summary;
+  final List<double>? embedding;
 
   SavedChat({
     required this.id,
@@ -13,6 +15,8 @@ class SavedChat {
     required this.messages,
     required this.createdAt,
     required this.updatedAt,
+    this.summary,
+    this.embedding,
   });
 
   factory SavedChat.create() {
@@ -23,6 +27,8 @@ class SavedChat {
       messages: [],
       createdAt: now,
       updatedAt: now,
+      summary: null,
+      embedding: null,
     );
   }
 
@@ -32,6 +38,8 @@ class SavedChat {
     List<ChatMessage>? messages,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? summary,
+    List<double>? embedding,
   }) {
     return SavedChat(
       id: id ?? this.id,
@@ -39,6 +47,8 @@ class SavedChat {
       messages: messages ?? this.messages,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      summary: summary ?? this.summary,
+      embedding: embedding ?? this.embedding,
     );
   }
 
@@ -49,6 +59,8 @@ class SavedChat {
       'messages': messages.map((m) => m.toJson()).toList(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'summary': summary,
+      'embedding': embedding,
     };
   }
 
@@ -61,6 +73,8 @@ class SavedChat {
           .toList(),
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
+      summary: json['summary'] as String?,
+      embedding: (json['embedding'] as List?)?.map((e) => (e as num).toDouble()).toList(),
     );
   }
 

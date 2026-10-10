@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/saved_chat.dart';
 import '../models/user_settings_enums.dart'; // import enums
 import 'settings_service.dart';
+import 'package:string_similarity/string_similarity.dart';
 
 class ChatService {
   final String _apiBase = 'https://api.bybl.dev/api';
@@ -21,20 +23,25 @@ class ChatService {
 
   // REMOVED static const _systemPrompt
 
-  Future<String> _buildSystemPrompt() async {
+  Future<String> buildSystemPrompt(String? userQuery, {bool useFullMemory = true}) async {
     final prefs = await SharedPreferences.getInstance();
     final settingsService = SettingsService(); // Instantiate to load enums
 
     final denom = await settingsService.loadDenomination();
     final context = await settingsService.loadAIContext();
+    final userName = await settingsService.loadAIUserName();
 
     String prompt =
-        "Your name is archie. You are a Christian AI pink angel/blob thing that lives inside of a bible app called bybl. ";
+        "You are a Christian AI assistant that lives inside of a bible app called bybl. ";
+
+    if (useFullMemory && userName != null && userName.isNotEmpty) {
+      prompt += "The user's name is $userName. Address them by their name when appropriate. ";
+    }
 
     prompt += "You are assisting a user who identifies as ${denom.label}. ";
     prompt += "Provide answers that are ${context.label}. ";
 
-    if (context == AIContext.academic || context == AIContext.linguistic) {
+    if (context == AIContext.academic) {
       prompt +=
           "Focus on historical context, original languages, and critical scholarship. ";
     } else if (context == AIContext.devotional ||
@@ -115,6 +122,38 @@ class ChatService {
     prompt +=
         "Cite Bible books/chapters/verses (use lesser‑known ones when possible). Don't repeat the user's request at the top of your reply, don't label the response, and don't repeat your own answers.";
 
+    if (useFullMemory && userQuery != null && userQuery.isNotEmpty) {
+      // True RAG over past chats
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final apiKey = prefs.getString('geminiApiKey');
+        if (apiKey != null && apiKey.isNotEmpty) {
+           final queryEmbedding = await _getEmbedding(userQuery, apiKey);
+           if (queryEmbedding != null) {
+              final chats = await getSavedChats();
+              List<Map<String, dynamic>> scoredChats = [];
+              for (var chat in chats) {
+                if (chat.id == _currentChatId || chat.summary == null || chat.embedding == null) continue;
+                double score = _cosineSimilarity(queryEmbedding, chat.embedding!);
+                if (score > 0.5) { // Threshold for similarity
+                  scoredChats.add({'score': score, 'summary': chat.summary, 'title': chat.title});
+                }
+              }
+              scoredChats.sort((a, b) => (b['score'] as double).compareTo(a['score'] as double));
+              final topMemory = scoredChats.take(3).toList();
+              if (topMemory.isNotEmpty) {
+                prompt += "\n\nRelevant past memories from the user (for context only):\n";
+                for (var mem in topMemory) {
+                  prompt += "- From previous chat '${mem['title']}': \"${mem['summary']}\"\n";
+                }
+              }
+           }
+        }
+      } catch (e) {
+        debugPrint('Error loading RAG memory: $e');
+      }
+    }
+
     return prompt;
   }
 
@@ -131,7 +170,7 @@ class ChatService {
   }
 
   /// Save a chat to local storage
-  Future<void> saveChat(SavedChat chat) async {
+  Future<void> saveChat(SavedChat chat, {bool skipSummary = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final chats = await getSavedChats();
 
@@ -145,6 +184,10 @@ class ChatService {
 
     final chatsJson = chats.map((c) => c.toJsonString()).toList();
     await prefs.setStringList(_savedChatsKey, chatsJson);
+
+    if (!skipSummary) {
+      _generateSummaryAndEmbedding(chat);
+    }
   }
 
   /// Delete a chat from local storage
@@ -282,7 +325,7 @@ class ChatService {
       } else {
         return ChatMessage(
           role: 'assistant',
-          content: msg.replaceFirst('**Archie**: ', ''),
+          content: msg.replaceFirst('**Bible Companion**: ', '').replaceFirst('**Archie**: ', ''),
         );
       }
     }).toList();
@@ -293,7 +336,7 @@ class ChatService {
       if (msg.role == 'user') {
         return '**You**: ${msg.content}';
       } else {
-        return '**Archie**: ${msg.content}';
+        return '**Bible Companion**: ${msg.content}';
       }
     }).toList();
   }
@@ -324,7 +367,7 @@ class ChatService {
   /// Set [useHistory] to false for one-shot requests (like summarization) that shouldn't
   /// track or use conversation history.
   Stream<String> streamResponse(String userMessage,
-      {bool useHistory = true}) async* {
+      {bool useHistory = true, bool isMainChat = true}) async* {
     if (useHistory) {
       addToHistory('user', userMessage);
     }
@@ -342,11 +385,11 @@ class ChatService {
     if (geminiApiKey != null && geminiApiKey.isNotEmpty) {
       responseStream = _streamGeminiResponse(
           userMessage, geminiApiKey, geminiModel,
-          useHistory: useHistory);
+          useHistory: useHistory, isMainChat: isMainChat);
     } else {
       responseStream = _streamBackendResponse(
           userMessage, prefs.getString('token'),
-          useHistory: useHistory);
+          useHistory: useHistory, isMainChat: isMainChat);
     }
 
     String buffer = '';
@@ -362,12 +405,12 @@ class ChatService {
 
   Stream<String> _streamGeminiResponse(
       String userMessage, String apiKey, String modelName,
-      {bool useHistory = true}) async* {
+      {bool useHistory = true, bool isMainChat = true}) async* {
     try {
       final model = GenerativeModel(
         model: modelName,
         apiKey: apiKey,
-        systemInstruction: Content.text(await _buildSystemPrompt()),
+        systemInstruction: Content.text(await buildSystemPrompt(userMessage, useFullMemory: isMainChat)),
       );
 
       Stream<GenerateContentResponse> response;
@@ -406,18 +449,23 @@ class ChatService {
       }
     } catch (e, stack) {
       debugPrint('🔥 Gemini Error: $e\n$stack');
-      yield 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
+      final errorMessage = e.toString().toLowerCase();
+      if (errorMessage.contains('high demand') || errorMessage.contains('503')) {
+         yield 'The AI model is currently experiencing high demand. Please try again in a moment.';
+      } else {
+         yield 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
+      }
     }
   }
 
   Stream<String> _streamBackendResponse(String userMessage, String? token,
-      {bool useHistory = true}) async* {
+      {bool useHistory = true, bool isMainChat = true}) async* {
     // Note: The backend expects the current message to be IN the history list if using history
     final messagesToSend = useHistory
-        ? await _buildMessagePayload(_conversationHistory)
+        ? await _buildMessagePayload(_conversationHistory, userMessage, isMainChat)
         : await _buildMessagePayload([
             {'role': 'user', 'content': userMessage}
-          ]);
+          ], userMessage, false);
 
     final request = http.Request(
       'POST',
@@ -437,12 +485,12 @@ class ChatService {
     } catch (e, stack) {
       debugPrint('🔥 Error: $e\n$stack');
       // network error → fall back to non-stream endpoint
-      yield* _fallbackResponse(userMessage, useHistory: useHistory);
+      yield* _fallbackResponse(userMessage, useHistory: useHistory, isMainChat: isMainChat);
       return;
     }
 
     if (response.statusCode != 200) {
-      yield* _fallbackResponse(userMessage, useHistory: useHistory);
+      yield* _fallbackResponse(userMessage, useHistory: useHistory, isMainChat: isMainChat);
       return;
     }
 
@@ -458,7 +506,7 @@ class ChatService {
   }
 
   Stream<String> _fallbackResponse(String userMessage,
-      {bool useHistory = true}) async* {
+      {bool useHistory = true, bool isMainChat = true}) async* {
     // Since streamResponse wrapper adds to history, but fallback might use getResponse which ALSO adds to history...
     // We need to be careful. getResponse is designed to be standalone.
     // However, getResponse logic below uses _conversationHistory.
@@ -472,13 +520,13 @@ class ChatService {
     // 2. getResponse (if we modify it) will see it.
 
     final reply = await getResponse(userMessage,
-        useHistory: useHistory, alreadyAddedToHistory: true);
+        useHistory: useHistory, alreadyAddedToHistory: true, isMainChat: isMainChat);
     yield reply;
   }
 
   /// Gets a response from the AI.
   Future<String> getResponse(String userMessage,
-      {bool useHistory = true, bool alreadyAddedToHistory = false}) async {
+      {bool useHistory = true, bool alreadyAddedToHistory = false, bool isMainChat = true}) async {
     final prefs = await SharedPreferences.getInstance();
     final geminiApiKey = prefs.getString('geminiApiKey');
     String geminiModel = prefs.getString('geminiModel') ?? 'gemini-3.8-flash';
@@ -496,15 +544,15 @@ class ChatService {
     // Use Gemini directly if API key is set
     if (geminiApiKey != null && geminiApiKey.isNotEmpty) {
       reply = await _getGeminiResponse(userMessage, geminiApiKey, geminiModel,
-          useHistory: useHistory);
+          useHistory: useHistory, isMainChat: isMainChat);
     } else {
       // Backend
       final token = prefs.getString('token');
       final messagesToSend = useHistory
-          ? await _buildMessagePayload(_conversationHistory)
+          ? await _buildMessagePayload(_conversationHistory, userMessage, isMainChat)
           : await _buildMessagePayload([
               {'role': 'user', 'content': userMessage}
-            ]);
+            ], userMessage, false);
 
       final response = await http.post(
         Uri.parse('$_apiBase/chat'),
@@ -523,7 +571,7 @@ class ChatService {
       reply = data['response'] as String;
     }
 
-    reply = reply.replaceFirst(RegExp(r'^Archie:?\s*'), '');
+    reply = reply.replaceFirst(RegExp(r'^Bible Companion:?\s*'), '').replaceFirst(RegExp(r'^Archie:?\s*'), '');
 
     if (useHistory && !alreadyAddedToHistory) {
       addToHistory('assistant', reply);
@@ -534,12 +582,12 @@ class ChatService {
 
   Future<String> _getGeminiResponse(
       String userMessage, String apiKey, String modelName,
-      {bool useHistory = true}) async {
+      {bool useHistory = true, bool isMainChat = true}) async {
     try {
       final model = GenerativeModel(
         model: modelName,
         apiKey: apiKey,
-        systemInstruction: Content.text(await _buildSystemPrompt()),
+        systemInstruction: Content.text(await buildSystemPrompt(userMessage, useFullMemory: isMainChat)),
       );
 
       if (useHistory) {
@@ -565,15 +613,86 @@ class ChatService {
       }
     } catch (e, stack) {
       debugPrint('🔥 Gemini Error: $e\n$stack');
-      return 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
+      final errorMessage = e.toString().toLowerCase();
+      if (errorMessage.contains('high demand') || errorMessage.contains('503')) {
+         return 'The AI model is currently experiencing high demand. Please try again in a moment.';
+      } else {
+         return 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
+      }
     }
   }
 
   Future<List<Map<String, String>>> _buildMessagePayload(
-      List<Map<String, String>> history) async {
+      List<Map<String, String>> history, String? userMessage, bool isMainChat) async {
     return [
-      {'role': 'system', 'content': await _buildSystemPrompt()},
+      {'role': 'system', 'content': await buildSystemPrompt(userMessage, useFullMemory: isMainChat)},
       ...history
     ];
+  }
+
+  Future<void> _generateSummaryAndEmbedding(SavedChat chat) async {
+    if (chat.messages.length < 2) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final geminiApiKey = prefs.getString('geminiApiKey');
+      if (geminiApiKey == null || geminiApiKey.isEmpty) return;
+      
+      String geminiModel = prefs.getString('geminiModel') ?? 'gemini-3.8-flash';
+
+      final model = GenerativeModel(
+        model: geminiModel,
+        apiKey: geminiApiKey,
+      );
+      final chatText = chat.messages.map((m) => "${m.role}: ${m.content}").join('\n');
+      final prompt = "Provide a concise summary of the following chat conversation capturing the main topics, user preferences, and context. Keep it under 50 words:\n$chatText";
+      final response = await model.generateContent([Content.text(prompt)]);
+      final summary = response.text ?? '';
+      
+      final embedding = await _getEmbedding(summary, geminiApiKey);
+      if (embedding != null && summary.isNotEmpty) {
+        final updatedChat = chat.copyWith(summary: summary, embedding: embedding);
+        await saveChat(updatedChat, skipSummary: true);
+      }
+    } catch (e) {
+      debugPrint('Error generating summary/embedding: $e');
+    }
+  }
+
+  Future<List<double>?> _getEmbedding(String text, String apiKey) async {
+    try {
+      final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=$apiKey');
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "model": "models/text-embedding-004",
+          "content": {
+            "parts": [{"text": text}]
+          }
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final embeddingList = data['embedding']['values'] as List;
+        return embeddingList.map((e) => (e as num).toDouble()).toList();
+      }
+    } catch (e) {
+      debugPrint('Embedding error: $e');
+    }
+    return null;
+  }
+  
+  double _cosineSimilarity(List<double> a, List<double> b) {
+    if (a.length != b.length) return 0.0;
+    double dotProduct = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+    for (int i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    if (normA == 0 || normB == 0) return 0.0;
+    return dotProduct / (math.sqrt(normA) * math.sqrt(normB));
   }
 }

@@ -34,12 +34,12 @@ class ByblApp extends StatelessWidget {
       builder: (context, settings, child) {
         BibleProvider bibleProvider =
             Provider.of<BibleProvider>(context, listen: false);
-        bibleProvider.fetchTranslations();
-
-        // Initialize verse provider for local highlights
         VerseProvider verseProvider =
             Provider.of<VerseProvider>(context, listen: false);
-        verseProvider.init();
+        Future.microtask(() {
+          bibleProvider.fetchTranslations();
+          verseProvider.init();
+        });
 
         var themeFontColor = settings.currentThemeMode == ThemeMode.dark
             ? Colors.white

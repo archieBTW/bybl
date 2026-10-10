@@ -8,6 +8,7 @@ import '../services/chat_service.dart';
 import '../shared/widgets/api_key_setup_prompt.dart';
 import '../shared/widgets/ai_disclaimer.dart';
 import 'settings_screen.dart';
+import '../services/gemini_live_service.dart';
 
 class ChatScreen extends StatefulWidget {
   @override
@@ -22,11 +23,38 @@ class ChatScreenState extends State<ChatScreen> {
   bool _isStreaming = false;
   bool _isLoading = true;
   final ScrollController _scrollController = ScrollController();
+  final GeminiLiveService _geminiLive = GeminiLiveService();
+  bool _isLiveConnected = false;
 
   @override
   void initState() {
     super.initState();
+    _geminiLive.onMessage = (text) {
+      if (mounted) {
+        setState(() {
+          if (_messages.isNotEmpty && _messages.last.startsWith('**Bible Companion**:')) {
+             _messages.last += text;
+          } else {
+             _messages.add('**Bible Companion**: $text');
+          }
+        });
+        _scrollToBottom();
+      }
+    };
+    _geminiLive.onDisconnect = () {
+      if (mounted) {
+        setState(() => _isLiveConnected = false);
+      }
+    };
     _loadCurrentChat();
+  }
+  
+  @override
+  void dispose() {
+    _geminiLive.disconnect();
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCurrentChat() async {
@@ -110,7 +138,7 @@ class ChatScreenState extends State<ChatScreen> {
       }
 
       setState(() {
-        _messages.add('**Archie**: $_streamingReply');
+        _messages.add('**Bible Companion**: $_streamingReply');
         _streamingReply = '';
         _isStreaming = false;
       });
@@ -129,7 +157,7 @@ class ChatScreenState extends State<ChatScreen> {
         }
 
         setState(() {
-          _messages.add('**Archie**: $_streamingReply');
+          _messages.add('**Bible Companion**: $_streamingReply');
           _streamingReply = '';
           _isStreaming = false;
         });
@@ -225,7 +253,7 @@ class ChatScreenState extends State<ChatScreen> {
     final settings = Provider.of<SettingsProvider>(context);
     final allMessages = List<String>.from(_messages);
     if (_streamingReply.isNotEmpty) {
-      allMessages.add('**Archie**: $_streamingReply');
+      allMessages.add('**Bible Companion**: $_streamingReply');
     }
 
     final hasApiKey = settings.geminiApiKey != null && settings.geminiApiKey!.isNotEmpty;
@@ -247,7 +275,7 @@ class ChatScreenState extends State<ChatScreen> {
             icon: Icon(Icons.arrow_back, color: effectiveFontColor),
             onPressed: () => Navigator.pop(context),
           ),
-          title: Text('Ask Archie', style: TextStyle(color: effectiveFontColor)),
+          title: Text('Bible Companion', style: TextStyle(color: effectiveFontColor)),
         ),
         body: ApiKeySetupPrompt(
           onGoToSettings: () {
@@ -268,7 +296,7 @@ class ChatScreenState extends State<ChatScreen> {
             icon: Icon(Icons.arrow_back, color: effectiveFontColor),
             onPressed: () => Navigator.pop(context),
           ),
-          title: Text('Ask Archie', style: TextStyle(color: effectiveFontColor)),
+          title: Text('Bible Companion', style: TextStyle(color: effectiveFontColor)),
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -281,7 +309,7 @@ class ChatScreenState extends State<ChatScreen> {
           icon: Icon(Icons.arrow_back, color: effectiveFontColor),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text('Ask Archie', style: TextStyle(color: effectiveFontColor)),
+        title: Text('Bible Companion', style: TextStyle(color: effectiveFontColor)),
         actions: [
           IconButton(
             icon: Icon(Icons.history, color: effectiveFontColor),
@@ -303,10 +331,10 @@ class ChatScreenState extends State<ChatScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Image.asset(
-                          'assets/icon/archie.png',
-                          width: 150,
-                          height: 150,
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 100,
+                          color: Colors.grey[500],
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -407,7 +435,7 @@ class ChatScreenState extends State<ChatScreen> {
                           if (!isUser)
                             Padding(
                               padding: const EdgeInsets.only(left: 4, bottom: 8),
-                              child: const AiDisclaimer(compact: true),
+                                child: const AiDisclaimer(compact: true),
                             ),
                         ],
                       );
@@ -446,6 +474,26 @@ class ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                   ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    _isLiveConnected ? Icons.mic : Icons.mic_none,
+                    color: _isLiveConnected ? Colors.red : effectiveFontColor,
+                  ),
+                  onPressed: () async {
+                    if (!_isLiveConnected) {
+                      final prompt = await _chatService.buildSystemPrompt(null);
+                      await _geminiLive.connect(settings.geminiApiKey ?? '', prompt, modelName: settings.geminiModel ?? 'gemini-3.8-flash');
+                      await _geminiLive.startRecording();
+                      setState(() => _isLiveConnected = true);
+                    } else {
+                      setState(() {
+                        _isLiveConnected = false;
+                        _messages.add('**You**: (Voice Message)');
+                      });
+                      await _geminiLive.stopRecording();
+                    }
+                  },
                 ),
                 IconButton(
                   icon: const Icon(Icons.send),

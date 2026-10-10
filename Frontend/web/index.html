@@ -16,7 +16,6 @@
     the `--base-href` argument provided to `flutter build`.
   -->
   <base href="$FLUTTER_BASE_HREF">
-  <link rel="manifest" href="manifest.json">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
@@ -25,14 +24,15 @@
   <!-- iOS meta tags & icons -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="The Word">
+  <meta name="apple-mobile-web-app-title" content="bybl">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png" />
 
-  <title>The Word</title>
+  <title>bybl</title>
   <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
 
   <style>
     body {
@@ -62,7 +62,7 @@
 
 
 
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBv-Kvm2cZGw7dEcOaDNQF3ku4g9n4SgBI"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key="></script>
 </head>
 
 <body>
@@ -72,13 +72,26 @@
   </div>
 
   <script>
+    const serviceWorkerVersion = null;
+  </script>
+  <!-- This script adds the flutter initialization JS code -->
+  <script src="flutter.js" defer></script>
+  <script>
     window.addEventListener('load', function () {
-      const splash = document.getElementById('splash-screen');
-      if (splash) splash.remove();
+      _flutter.loader.loadEntrypoint({
+        serviceWorker: {
+          serviceWorkerVersion: serviceWorkerVersion,
+        },
+        onEntrypointLoaded: function (engineInitializer) {
+          engineInitializer.initializeEngine().then(function (appRunner) {
+            const splash = document.getElementById('splash-screen');
+            if (splash) splash.remove();
+            appRunner.runApp();
+          });
+        }
+      });
     });
   </script>
-
-  <script src="main.dart.js" type="application/javascript"></script>
 </body>
 
 

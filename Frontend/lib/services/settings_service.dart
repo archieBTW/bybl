@@ -148,6 +148,18 @@ class SettingsService {
     return AIContext.devotional; // Default
   }
 
+  Future<void> saveAIUserName(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('aiUserName', name);
+  }
+
+  Future<String?> loadAIUserName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('aiUserName');
+  }
+
+
+
   Future<Map<String, String>> loadTranslation() async {
     final prefs = await SharedPreferences.getInstance();
     String? translationId = prefs.getString('translationId');

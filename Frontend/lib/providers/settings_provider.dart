@@ -36,11 +36,13 @@ class SettingsProvider with ChangeNotifier {
   // AI Identity Settings
   Denomination _denomination = Denomination.nondenominational;
   AIContext _aiContext = AIContext.devotional;
+  String? _aiUserName;
 
   String? get geminiApiKey => _geminiApiKey;
   String get geminiModel => _geminiModel;
   Denomination get denomination => _denomination;
   AIContext get aiContext => _aiContext;
+  String? get aiUserName => _aiUserName;
 
   static const List<String> availableGeminiModels = [
     'gemini-3.8-flash',
@@ -118,6 +120,7 @@ class SettingsProvider with ChangeNotifier {
 
     _denomination = await settingsService.loadDenomination();
     _aiContext = await settingsService.loadAIContext();
+    _aiUserName = await settingsService.loadAIUserName();
 
     final token = prefs.getString('token');
     final tokenExpiry = prefs.getInt('tokenExpiry') ?? 0;
@@ -320,6 +323,14 @@ class SettingsProvider with ChangeNotifier {
     await settingsService.saveAIContext(ctx);
     notifyListeners();
   }
+
+  Future<void> updateAIUserName(String name) async {
+    _aiUserName = name;
+    await settingsService.saveAIUserName(name);
+    notifyListeners();
+  }
+
+
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();

@@ -14,6 +14,7 @@ import '../providers/bible_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/local_storage_service.dart';
 import '../models/user_settings_enums.dart';
+import '../services/gemini_live_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -31,6 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Data lists
   List<dynamic> _filteredTranslations = [];
+  late final TextEditingController _userNameController;
 
   // ────────────────────────────── LIFECYCLE ────────────────────────────────────
   @override
@@ -57,12 +59,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       });
     });
+
+    _userNameController = TextEditingController(text: settingsProvider.aiUserName ?? '');
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _geminiApiKeyController.dispose();
+    _userNameController.dispose();
     super.dispose();
   }
 
@@ -521,6 +526,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }
                       },
                     ),
+                    const SizedBox(height: 16),
+                    Text('Your Name',
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _userNameController,
+                      decoration: const InputDecoration(
+                        hintText: 'How should the AI address you?',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) {
+                        settingsProvider.updateAIUserName(value);
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -724,7 +743,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  /// Create a solid MaterialColor without blending (for black/white)
   MaterialColor _createSolidMaterialColor(Color base) {
     return MaterialColor(base.value, {
       50: base,

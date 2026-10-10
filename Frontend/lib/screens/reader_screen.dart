@@ -16,8 +16,8 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../providers/settings_provider.dart';
 import '../providers/bible_provider.dart';
 import '../services/chat_service.dart';
-import '../services/tts_service.dart';
 import '../shared/widgets/ai_disclaimer.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 class ReaderScreen extends StatefulWidget {
   String chapterId;
@@ -71,8 +71,7 @@ class ReaderScreenState extends State<ReaderScreen> {
   String chapterName = '';
   bool pageChanging = false;
 
-  // FlutterTts flutterTts = FlutterTts();
-  final TtsService _ttsService = TtsService();
+  FlutterTts flutterTts = FlutterTts();
 
   ChatService chatService = ChatService();
 
@@ -95,25 +94,22 @@ class ReaderScreenState extends State<ReaderScreen> {
     _fetchChapterContent(widget.chapterId);
     _preloadAdjacentChapters(widget.chapterId);
 
-    // flutterTts.setCompletionHandler(() {
-    //   if (!isSkipping) {
-    //     _readNextVerse();
-    //   }
-    //   isSkipping = false;
-    // });
+    flutterTts.setCompletionHandler(() {
+      if (!isSkipping && isReading && !isPaused) {
+        _readNextVerse();
+      }
+      isSkipping = false;
+    });
 
-    // flutterTts.setSpeechRate(0.5);
-    // flutterTts.setPitch(1.0);
-    // flutterTts.setLanguage('en-US');
-    // flutterTts.awaitSpeakCompletion(true);
-
-    _ttsService.init();
+    flutterTts.setSpeechRate(0.5);
+    flutterTts.setPitch(1.0);
+    // flutterTts.setLanguage('en-US'); // Let it use the device default
+    flutterTts.awaitSpeakCompletion(true);
   }
 
   @override
   void dispose() {
-    // flutterTts.stop();
-    _ttsService.stop();
+    flutterTts.stop();
     for (final controller in _scrollControllers.values) {
       controller.dispose();
     }
@@ -337,34 +333,6 @@ class ReaderScreenState extends State<ReaderScreen> {
     _readVerse(0);
   }
 
-  Future<void> _prefetchVerse(int index) async {
-    final chapterId = widget.chapterId;
-    final verses = _chapterContents[chapterId];
-    if (verses == null || index >= verses.length) return;
-
-    if (_audioCache[chapterId]?.containsKey(index) ?? false) return;
-    if (_activePrefetches[chapterId]?.containsKey(index) ?? false) return;
-
-    final text = verses[index]['text'] ?? '';
-    if (text.trim().isEmpty) return;
-
-    final future = _ttsService
-        .generateAudio(text,
-            outputFileName:
-                'verse_${index}_${DateTime.now().millisecondsSinceEpoch}.wav')
-        .then((path) {
-      if (path != null && mounted) {
-        _audioCache.putIfAbsent(chapterId, () => {})[index] = path;
-      }
-      if (mounted) {
-        _activePrefetches[chapterId]?.remove(index);
-      }
-      return path;
-    });
-
-    _activePrefetches.putIfAbsent(chapterId, () => {})[index] = future;
-  }
-
   void _readVerse(int index) async {
     final chapterId = widget.chapterId;
     final verses = _chapterContents[chapterId];
@@ -376,7 +344,6 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
 
     if (index == 0) {
-      _prefetchVerse(0);
       await _announceChapter(chapterName);
       if (mounted) {
         setState(() => isSkipping = false);
@@ -390,53 +357,7 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
 
     setState(() => currentVerseIndex = index);
-
-    final nextIndex = index + 1;
-    if (nextIndex < verses.length) {
-      _prefetchVerse(nextIndex);
-    }
-
-    String? audioPath;
-
-    if (_audioCache[chapterId]?.containsKey(index) ?? false) {
-      audioPath = _audioCache[chapterId]![index];
-    } else if (_activePrefetches[chapterId]?.containsKey(index) ?? false) {
-      audioPath = await _activePrefetches[chapterId]![index];
-    } else {
-      audioPath = await _ttsService.generateAudio(
-        text,
-        outputFileName:
-            'verse_${index}_${DateTime.now().millisecondsSinceEpoch}.wav',
-      );
-      if (audioPath != null && mounted) {
-        _audioCache.putIfAbsent(chapterId, () => {})[index] = audioPath;
-      }
-    }
-
-    if (audioPath != null) {
-      await _ttsService.playAudio(
-        audioPath,
-        onCompletion: () {
-          if (!isSkipping && isReading) {
-            _readNextVerse();
-          }
-          isSkipping = false;
-        },
-      );
-    } else {
-      // if (!isSkipping && isReading) {
-      //   _readNextVerse();
-      // }
-      // isSkipping = false;
-      print("Audio generation failed for index $index. Stopping playback.");
-      _pauseReading();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("TTS Error: Could not generate audio.")),
-        );
-      }
-    }
+    await flutterTts.speak(text);
   }
 
   void _readNextVerse() {
@@ -452,8 +373,7 @@ class ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _pauseReading() {
-    // flutterTts.stop();
-    _ttsService.stop();
+    flutterTts.stop();
     setState(() {
       isReading = false;
       isPaused = true;
@@ -470,8 +390,7 @@ class ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _skipReading() {
-    // flutterTts.stop();
-    _ttsService.stop();
+    flutterTts.stop();
     setState(() => isSkipping = true);
     _readNextVerse();
   }
@@ -479,21 +398,13 @@ class ReaderScreenState extends State<ReaderScreen> {
   Future<void> _announceChapter(String chapterName) async {
     setState(() => isSkipping = true);
 
-    // Improved announcement text
     String textToSpeak = chapterName;
-    // If it's just a number or doesn't start with "Chapter" or the book name
     if (!textToSpeak.toLowerCase().startsWith('chapter') &&
         !textToSpeak.toLowerCase().contains(widget.bookName.toLowerCase())) {
       textToSpeak = "Chapter $textToSpeak";
     }
 
-    await _ttsService.speak(
-      textToSpeak,
-      onCompletion: () {
-        // Proceed to first verse automatically if needed, or just let the flow continue
-        // logic in _readVerse usually handles the flow since this is awaited.
-      },
-    );
+    await flutterTts.speak(textToSpeak);
   }
 
   Future<void> _fetchNextChapter() async {
@@ -751,7 +662,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                 ),
               ),
             ),
-            if (!kIsWeb)
+
               IconButton(
                 color: (settingsProvider.currentThemeMode == ThemeMode.dark)
                     ? Colors.white
@@ -793,8 +704,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                       // Stop audio if it was playing, but keep isReading true
                       // if we want to auto-resume on the new page.
                       if (isReading) {
-                        // flutterTts.stop();
-                        _ttsService.stop();
+                        flutterTts.stop();
                         // Note: isReading remains true
                       }
 
@@ -853,7 +763,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                   ),
                 ),
 
-                if (isReading && !kIsWeb)
+                if (isReading)
                   Container(
                     color: Colors.grey[200],
                     child: Row(
@@ -1005,7 +915,7 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
     _messages.add({'role': 'assistant', 'content': ''});
 
     _subscription =
-        _chatService.streamResponse(widget.prompt, useHistory: false).listen(
+        _chatService.streamResponse(widget.prompt, useHistory: false, isMainChat: false).listen(
       (chunk) {
         setState(() {
           final lastMsg = _messages.last;
@@ -1055,7 +965,7 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
       _chatService.addToHistory('assistant', summaryContent);
     }
 
-    _subscription = _chatService.streamResponse(text, useHistory: true).listen(
+    _subscription = _chatService.streamResponse(text, useHistory: true, isMainChat: false).listen(
       (chunk) {
         setState(() {
           final lastMsg = _messages.last;
@@ -1083,7 +993,7 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
       if (m['role'] == 'user') {
         return '**You**: ${m['content']}';
       } else {
-        return '**Archie**: ${m['content']}';
+        return '**Bible Companion**: ${m['content']}';
       }
     }).toList();
 

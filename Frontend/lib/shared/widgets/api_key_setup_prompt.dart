@@ -14,10 +14,10 @@ class ApiKeySetupPrompt extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset(
-              'assets/icon/archie.png',
-              width: 120,
-              height: 120,
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 100,
+              color: Colors.grey[500],
             ),
             const SizedBox(height: 24),
             Text(
@@ -29,7 +29,7 @@ class ApiKeySetupPrompt extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'To chat with Archie and use AI features, you need to add your Gemini API key in Settings.',
+              'To chat with the Bible Companion and use AI features, you need to add your Gemini API key in Settings.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Colors.grey[400],
                   ),

@@ -155,7 +155,7 @@ class _MainAppScreenState extends State<MainAppScreen> {
                   leading:
                       Icon(Icons.chat_bubble_outline, color: drawerTextColor),
                   title: Text(
-                    'Ask Archie',
+                    'Bible Companion',
                     style: TextStyle(color: drawerTextColor),
                   ),
                   onTap: _navigateToChat,
