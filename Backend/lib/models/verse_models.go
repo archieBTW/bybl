@@ -1,13 +1,13 @@
 package models
 
 type UserVerse struct {
-	UserVerseID uint `gorm:"primaryKey"`
-	VerseID     string
-	Content     string
-	Verse       string
-	UserID      uint
-	Note        string
-	IsPublished bool `json:"is_published"` // New field added
+	UserVerseID uint   `gorm:"primaryKey" json:"user_verse_id" gofyr:"readonly"`
+	VerseID     string `json:"verse_id" gofyr:"searchable,label:Verse Ref"`
+	Content     string `json:"content" gofyr:"type:textarea,searchable"`
+	Verse       string `json:"verse" gofyr:"searchable,label:Verse Text"`
+	UserID      uint   `json:"user_id" gofyr:"label:User ID"`
+	Note        string `json:"note" gofyr:"type:textarea"`
+	IsPublished bool   `json:"is_published" gofyr:"label:Published"`
 }
 
 type UserVerseWithMeta struct {

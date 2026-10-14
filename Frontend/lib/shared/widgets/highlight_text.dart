@@ -1,5 +1,4 @@
 import 'package:TheWord/screens/reader_screen.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/settings_provider.dart';
@@ -146,7 +145,7 @@ class SelectableTextHighlightState extends State<SelectableTextHighlight> {
     }
 
     return SingleChildScrollView(
-      physics: const SensitivityScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(),
       key: PageStorageKey(widget.chapterId),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -221,108 +220,44 @@ class SelectableTextHighlightState extends State<SelectableTextHighlight> {
                   margin: const EdgeInsets.only(bottom: 8.0),
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12.0, vertical: 12.0),
-                  // decoration: BoxDecoration(
-                  // color: highlightColor,
-                  // borderRadius: BorderRadius.circular(8.0),
-                  // ),
-                  child: SelectableRegion(
-                    focusNode:
-                        FocusNode(), // Can also reuse one for the whole screen
-                    selectionControls: materialTextSelectionControls,
-                    child: Text.rich(
-                      TextSpan(
-                        style: DefaultTextStyle.of(context).style.copyWith(
-                              color: textColor,
-                            ),
-                        children: [
-                          TextSpan(
-                            text: widget.translationId == "ESV"
-                                ? "$verseId  "
-                                : "${verseId.split('.')[2]}  ",
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.bold,
-                            ),
+                  child: Text.rich(
+                    TextSpan(
+                      style: DefaultTextStyle.of(context).style.copyWith(
+                            color: textColor,
                           ),
-                          TextSpan(
-                            text: verseText,
-                            style: TextStyle(
-                              fontSize: widget.style.fontSize,
-                              color: textColor,
-                              fontWeight: isCurrentVerse || isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              decorationThickness: 4,
-                              decoration:
-                                  isSelected ? TextDecoration.underline : null,
-                              decorationStyle: isSelected
-                                  ? TextDecorationStyle.dotted
-                                  : null,
-                              backgroundColor: isHighlighted
-                                  ? highlightColor
-                                  : Colors.transparent,
-                            ),
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () => _handleTap(verseId),
+                      children: [
+                        TextSpan(
+                          text: widget.translationId == "ESV"
+                              ? "$verseId  "
+                              : "${verseId.split('.')[2]}  ",
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.bold,
                           ),
-                        ],
-                      ),
+                        ),
+                        TextSpan(
+                          text: verseText,
+                          style: TextStyle(
+                            fontSize: widget.style.fontSize,
+                            color: textColor,
+                            fontWeight: isCurrentVerse || isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            decorationThickness: 4,
+                            decoration:
+                                isSelected ? TextDecoration.underline : null,
+                            decorationStyle: isSelected
+                                ? TextDecorationStyle.dotted
+                                : null,
+                            backgroundColor: isHighlighted
+                                ? highlightColor
+                                : Colors.transparent,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-
-                  // child: SelectableText.rich(
-                  //   TextSpan(
-                  //     style: DefaultTextStyle.of(context).style.copyWith(
-                  //           color: textColor,
-                  //         ),
-                  //     children: [
-                  //       TextSpan(
-                  //         text: widget.translationId == "ESV"
-                  //             ? "$verseId  "
-                  //             : "${verseId.split('.')[2]}  ",
-                  //         style: const TextStyle(
-                  //           fontSize: 12,
-                  //           color: Colors.grey,
-                  //           fontWeight: FontWeight.bold,
-                  //         ),
-                  //       ),
-                  //       TextSpan(
-                  //         text: verseText,
-                  //         style: TextStyle(
-                  //           fontSize: 18,
-                  //           color: textColor,
-                  //           fontWeight: isCurrentVerse || isSelected
-                  //               ? FontWeight.bold
-                  //               : FontWeight.normal,
-                  //           decorationThickness: 4,
-
-                  //           decoration:
-                  //               isSelected ? TextDecoration.underline : null,
-                  //           decorationStyle:
-                  //               isSelected ? TextDecorationStyle.dotted : null,
-                  //           backgroundColor: isHighlighted
-                  //               ? highlightColor
-                  //               : Colors.transparent, // ✅ highlight just text
-                  //         ),
-                  //         recognizer: TapGestureRecognizer()
-                  //           ..onTap = () {
-                  //             if (widget.loggedIn) {
-                  //               setState(() {
-                  //                 if (selectedVerseId == fullId) {
-                  //                   selectedVerseId = null;
-                  //                   _activeTooltipVerseId = null;
-                  //                 } else {
-                  //                   selectedVerseId = fullId;
-                  //                   _activeTooltipVerseId = fullId;
-                  //                 }
-                  //               });
-                  //             }
-                  //           },
-                  //       ),
-                  //     ],
-                  //   ),
-                  // ),
                 ),
               ),
 
@@ -449,7 +384,4 @@ class SensitivityScrollPhysics extends ScrollPhysics {
   SensitivityScrollPhysics applyTo(ScrollPhysics? ancestor) {
     return SensitivityScrollPhysics(parent: buildParent(ancestor));
   }
-
-  @override
-  double get dragStartDistanceMotionThreshold => 35.0;
 }

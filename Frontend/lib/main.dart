@@ -4,6 +4,7 @@ import 'package:TheWord/providers/verse_provider.dart';
 import 'package:TheWord/screens/main_app.dart';
 import 'package:TheWord/services/tts_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -23,6 +24,19 @@ void main() async {
       child: ByblApp(),
     ),
   );
+}
+
+class AppScrollBehavior extends MaterialScrollBehavior {
+  const AppScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+        PointerDeviceKind.invertedStylus,
+      };
 }
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -48,6 +62,7 @@ class ByblApp extends StatelessWidget {
           themeFontColor = settings.getFontColor(settings.currentColor!);
 
         return MaterialApp(
+          scrollBehavior: const AppScrollBehavior(),
           initialRoute: '/main',
           routes: {
             '/main': (context) => const MainAppScreen(),

@@ -17,6 +17,9 @@ import '../providers/settings_provider.dart';
 import '../providers/bible_provider.dart';
 import '../services/chat_service.dart';
 import '../shared/widgets/ai_disclaimer.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
+import '../main.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 class ReaderScreen extends StatefulWidget {
@@ -80,6 +83,35 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   final Map<String, ScrollController> _scrollControllers = {};
 
+  final FocusNode _keyboardFocusNode = FocusNode();
+  double _trackpadScrollDeltaX = 0;
+  Timer? _trackpadResetTimer;
+  DateTime _lastTrackpadPageChange = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _handleTrackpadHorizontalScroll(PointerScrollEvent event) {
+    if (pageChanging) return;
+
+    final now = DateTime.now();
+    if (now.difference(_lastTrackpadPageChange).inMilliseconds < 450) {
+      return;
+    }
+
+    _trackpadScrollDeltaX += event.scrollDelta.dx;
+
+    _trackpadResetTimer?.cancel();
+    _trackpadResetTimer = Timer(const Duration(milliseconds: 200), () {
+      _trackpadScrollDeltaX = 0;
+    });
+
+    const threshold = 35.0;
+    if (_trackpadScrollDeltaX.abs() >= threshold) {
+      final direction = _trackpadScrollDeltaX > 0 ? 1 : -1;
+      _trackpadScrollDeltaX = 0;
+      _lastTrackpadPageChange = now;
+      _changePage(direction);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -109,6 +141,8 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   @override
   void dispose() {
+    _keyboardFocusNode.dispose();
+    _trackpadResetTimer?.cancel();
     flutterTts.stop();
     for (final controller in _scrollControllers.values) {
       controller.dispose();
@@ -423,31 +457,41 @@ class ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  // Existing method for left/right arrow navigation
+  // Method for chapter navigation (arrows, swipe, trackpad, keyboard)
   void _changePage(int direction) async {
+    if (pageChanging) return;
+
+    int newIndex = currentPageIndex;
+    if (direction == -1 && currentPageIndex > 0) {
+      newIndex = currentPageIndex - 1;
+    } else if (direction == 1 &&
+        currentPageIndex < widget.chapterIds.length - 1) {
+      newIndex = currentPageIndex + 1;
+    } else {
+      return;
+    }
+
     setState(() {
       isLoading = true;
       pageChanging = true;
     });
-    if (direction == -1 && currentPageIndex > 0) {
-      currentPageIndex--;
-    } else if (direction == 1 &&
-        currentPageIndex < widget.chapterIds.length - 1) {
-      currentPageIndex++;
-    } else {
-      setState(() {
-        isLoading = false;
-        pageChanging = false;
-      });
-      return;
-    }
 
-    _changeToChapter(currentPageIndex);
+    _changeToChapter(newIndex, animate: true);
   }
 
-  void _changeToChapter(int index) async {
+  void _changeToChapter(int index, {bool animate = false}) async {
     if (index < 0 || index >= widget.chapterIds.length) return;
-    _pageController.jumpToPage(index);
+    if (_pageController.hasClients) {
+      if (animate && (index - currentPageIndex).abs() == 1) {
+        _pageController.animateToPage(
+          index,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        _pageController.jumpToPage(index);
+      }
+    }
   }
 
   void _showChapterSelection() {
@@ -687,107 +731,142 @@ class ReaderScreenState extends State<ReaderScreen> {
           ],
         ),
         backgroundColor: theme.scaffoldBackgroundColor,
-        body: Stack(
-          children: [
-            Column(
-              children: [
-                // PageView for chapters
-                Expanded(
-                  child: PageView.builder(
-                    controller: _pageController,
-                    itemCount: widget.chapterIds.length,
-                    onPageChanged: (index) {
-                      // Centralized Page Change Logic
-                      final newChapterId = widget.chapterIds[index];
-                      final newChapterName = widget.chapterNames[index];
+        body: Focus(
+          focusNode: _keyboardFocusNode,
+          autofocus: true,
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent) {
+              if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                _changePage(-1);
+                return KeyEventResult.handled;
+              } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                _changePage(1);
+                return KeyEventResult.handled;
+              }
+            }
+            return KeyEventResult.ignored;
+          },
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  // PageView for chapters
+                  Expanded(
+                    child: ScrollConfiguration(
+                      behavior: const AppScrollBehavior(),
+                      child: PageView.builder(
+                        controller: _pageController,
+                        itemCount: widget.chapterIds.length,
+                        onPageChanged: (index) {
+                          // Centralized Page Change Logic
+                          final newChapterId = widget.chapterIds[index];
+                          final newChapterName = widget.chapterNames[index];
 
-                      // Stop audio if it was playing, but keep isReading true
-                      // if we want to auto-resume on the new page.
-                      if (isReading) {
-                        flutterTts.stop();
-                        // Note: isReading remains true
-                      }
+                          // Stop audio if it was playing, but keep isReading true
+                          // if we want to auto-resume on the new page.
+                          if (isReading) {
+                            flutterTts.stop();
+                            // Note: isReading remains true
+                          }
 
-                      setState(() {
-                        currentPageIndex = index;
-                        widget.chapterId = newChapterId;
-                        chapterName = newChapterName;
-                        if (isReading) {
-                          currentVerseIndex = 0;
-                        } else {
-                          currentVerseIndex = null;
-                        }
-                        isLoading = true;
-                      });
+                          setState(() {
+                            currentPageIndex = index;
+                            widget.chapterId = newChapterId;
+                            chapterName = newChapterName;
+                            if (isReading) {
+                              currentVerseIndex = 0;
+                            } else {
+                              currentVerseIndex = null;
+                            }
+                            isLoading = true;
+                          });
 
-                      _fetchChapterContent(newChapterId).then((_) {
-                        _preloadAdjacentChapters(newChapterId);
-                        setState(() {
-                          isLoading = false;
-                          pageChanging = false;
-                        });
-                        if (isReading) {
-                          // Resume reading from the start of the new chapter
-                          _resumeReading();
-                        }
-                      });
-                    },
-                    itemBuilder: (context, index) {
-                      final chapterId = widget.chapterIds[index];
-                      final verses = _chapterContents[chapterId] ?? [];
-                      final copyright = _chapterCopyrights[chapterId];
-                      final isCurrent = chapterId == widget.chapterId;
-                      if (verses.isEmpty) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+                          _fetchChapterContent(newChapterId).then((_) {
+                            _preloadAdjacentChapters(newChapterId);
+                            setState(() {
+                              isLoading = false;
+                              pageChanging = false;
+                            });
+                            if (isReading) {
+                              // Resume reading from the start of the new chapter
+                              _resumeReading();
+                            }
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          final chapterId = widget.chapterIds[index];
+                          final verses = _chapterContents[chapterId] ?? [];
+                          final copyright = _chapterCopyrights[chapterId];
+                          final isCurrent = chapterId == widget.chapterId;
+                          if (verses.isEmpty) {
+                            return const Center(
+                                child: CircularProgressIndicator());
+                          }
 
-                      return SelectableTextHighlight(
-                        key: isCurrent ? highlightKey : null,
-                        chapterId: chapterId,
-                        bookName: widget.bookName,
-                        translationId: widget.translationId,
-                        verses: verses,
-                        copyright: copyright,
-                        style: theme.textTheme.bodyMedium!.copyWith(
-                          fontSize: fontSize,
-                        ),
-                        currentVerseIndex: (chapterId == widget.chapterId)
-                            ? currentVerseIndex
-                            : -1,
-                        targetVerseId:
-                            (isCurrent && widget.targetVerseId != null)
-                                ? widget.targetVerseId
-                                : null,
-                      );
-                    },
-                  ),
-                ),
-
-                if (isReading)
-                  Container(
-                    color: Colors.grey[200],
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.pause),
-                          onPressed: _pauseReading,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.skip_next),
-                          onPressed: _skipReading,
-                        ),
-                      ],
+                          return Listener(
+                            onPointerSignal: (pointerSignal) {
+                              if (pointerSignal is PointerScrollEvent) {
+                                if (pointerSignal.scrollDelta.dx.abs() >
+                                    pointerSignal.scrollDelta.dy.abs()) {
+                                  GestureBinding.instance.pointerSignalResolver
+                                      .register(pointerSignal, (event) {
+                                    _handleTrackpadHorizontalScroll(
+                                        event as PointerScrollEvent);
+                                  });
+                                }
+                              }
+                            },
+                            child: SelectableTextHighlight(
+                              key: isCurrent ? highlightKey : null,
+                              chapterId: chapterId,
+                              bookName: widget.bookName,
+                              translationId: widget.translationId,
+                              verses: verses,
+                              copyright: copyright,
+                              style: theme.textTheme.bodyMedium!.copyWith(
+                                fontSize: fontSize,
+                              ),
+                              currentVerseIndex:
+                                  (chapterId == widget.chapterId)
+                                      ? currentVerseIndex
+                                      : -1,
+                              targetVerseId:
+                                  (isCurrent && widget.targetVerseId != null)
+                                      ? widget.targetVerseId
+                                      : null,
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
-              ],
-            ),
-            if (isSummaryLoading)
-              Container(
-                color: Colors.black54,
-                child: const Center(child: CircularProgressIndicator()),
+
+                  if (isReading)
+                    Container(
+                      color: Colors.grey[200],
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.pause),
+                            onPressed: _pauseReading,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.skip_next),
+                            onPressed: _skipReading,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
-          ],
+              if (isSummaryLoading)
+                Container(
+                  color: Colors.black54,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+            ],
+          ),
         ),
         bottomNavigationBar: BottomAppBar(
           color: theme.scaffoldBackgroundColor,

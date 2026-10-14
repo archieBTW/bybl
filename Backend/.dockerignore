@@ -1,11 +1,25 @@
-# Binaries
-main
-
-# OS files
+# Git & OS metadata
+.git/
+.gitignore
+.DS_Store
 *.DS_Store
 
-# Go dependencies
+# Go binaries and cache
+main
+Backend/main
 vendor/
+Backend/theword.db
 
-# Others
-.git
+# Node & Frontend (not needed for Go backend build)
+Frontend/
+**/node_modules/
+**/dist/
+!gofyr_admin/pkg/gofyr/ui/dist/**
+
+# Screenshots and documentation media
+screenshots/
+docs/screenshots/
+
+# Temporary and log files
+*.log
+*.tmp

@@ -21,7 +21,7 @@ func GetBibleTranslations(apiKey string) gin.HandlerFunc {
 			return
 		}
 
-		req, _ := http.NewRequest("GET", "https://api.scripture.api.bible/v1/bibles", nil)
+		req, _ := http.NewRequest("GET", "https://rest.api.bible/v1/bibles", nil)
 		req.Header.Set("api-key", apiKey)
 
 		resp, err := http.DefaultClient.Do(req)
@@ -71,7 +71,7 @@ func GetBibleBooks(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		bibleId := c.Param("bibleId")
 
-		url := fmt.Sprintf("https://api.scripture.api.bible/v1/bibles/%s/books", bibleId)
+		url := fmt.Sprintf("https://rest.api.bible/v1/bibles/%s/books", bibleId)
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("api-key", apiKey)
 
@@ -95,7 +95,7 @@ func GetBibleChapters(apiKey string) gin.HandlerFunc {
 		bibleId := c.Param("bibleId")
 		bookId := c.Param("bookId")
 
-		url := fmt.Sprintf("https://api.scripture.api.bible/v1/bibles/%s/books/%s/chapters", bibleId, bookId)
+		url := fmt.Sprintf("https://rest.api.bible/v1/bibles/%s/books/%s/chapters", bibleId, bookId)
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("api-key", apiKey)
 
@@ -214,7 +214,7 @@ func GetBiblePassage(apiKey string, esvKey string) gin.HandlerFunc {
 		}
 
 		// Non-ESV (scripture.api.bible)
-		url := fmt.Sprintf("https://api.scripture.api.bible/v1/bibles/%s/chapters/%s?content-type=json&include-notes=false&include-titles=false&include-chapter-numbers=false&include-verse-numbers=true", translationId, reference)
+		url := fmt.Sprintf("https://rest.api.bible/v1/bibles/%s/chapters/%s?content-type=json&include-notes=false&include-titles=false&include-chapter-numbers=false&include-verse-numbers=true", translationId, reference)
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("api-key", apiKey)
 
