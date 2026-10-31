@@ -12,11 +12,12 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/archieBTW/gofyr/pkg/gofyr"
 	"theword/Backend/lib/database"
 	"theword/Backend/lib/handlers"
 	"theword/Backend/lib/middleware"
 	"theword/Backend/lib/models"
+
+	"github.com/archieBTW/gofyr/pkg/gofyr"
 )
 
 var db *gorm.DB

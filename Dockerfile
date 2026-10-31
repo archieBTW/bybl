@@ -8,7 +8,7 @@ COPY web/ .
 RUN npm run build
 
 # Build backend
-FROM golang:1.21 AS backend-builder
+FROM golang:1.27 AS backend-builder
 
 WORKDIR /app
 COPY Backend/go.mod Backend/go.sum ./

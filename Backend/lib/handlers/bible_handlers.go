@@ -50,18 +50,12 @@ func GetBibleTranslations(apiKey string) gin.HandlerFunc {
 			return
 		}
 
-		dataRaw, ok := result["data"].([]interface{})
+		_, ok := result["data"].([]interface{})
 		if !ok {
 			log.Printf("Unexpected format from Scripture API: %s", string(body))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid response format"})
 			return
 		}
-
-		dataRaw = append(dataRaw, map[string]interface{}{
-			"id":   "ESV",
-			"name": "English Standard Version",
-		})
-		result["data"] = dataRaw
 
 		c.JSON(http.StatusOK, result)
 	}

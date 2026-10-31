@@ -48,22 +48,21 @@ class BibleProvider with ChangeNotifier {
 
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      final seenNames = <String>{};
+      final seenNames = <String, int>{};
       _translations = [];
 
       for (var t in data['data']) {
-        final name = t['name'];
-        if (!seenNames.contains(name)) {
-          seenNames.add(name);
-          _translations.add(t);
+        final id = t['id']?.toString() ?? '';
+        if (id.toUpperCase() == 'ESV' || id.toUpperCase() == 'NIV') {
+          continue;
         }
-      }
-
-      if (!seenNames.contains('New International Version')) {
-        _translations.add({
-          'id': 'NIV',
-          'name': 'New International Version',
-        });
+        final name = t['name']?.toString() ?? '';
+        if (!seenNames.containsKey(name)) {
+          seenNames[name] = _translations.length;
+          _translations.add(t);
+        } else if (id == bereanBibleId) {
+          _translations[seenNames[name]!] = t;
+        }
       }
 
       notifyListeners();

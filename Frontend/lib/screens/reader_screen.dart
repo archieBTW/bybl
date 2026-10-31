@@ -260,43 +260,93 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   List<Map<String, dynamic>> _extractScriptureApiVerses(dynamic raw) {
     final verses = <Map<String, dynamic>>[];
-    String? activeId; // track current verse-id
+    String? activeId; // track current normalized verse-id
+
+    String normVerseId(String id) => id.replaceAll(RegExp(r'[: ]'), '.');
 
     for (final para in (raw as List)) {
       if (para is! Map || para['name'] != 'para') continue;
 
-      for (final item in (para['items'] as List)) {
-        // ── ① a normal “verse” wrapper ─────────────────────────────
-        if (item['name'] == 'verse' && item['attrs'] is Map) {
-          activeId = item['attrs']['sid'] ?? item['attrs']['verseId'];
-          final buf = StringBuffer();
-          for (final t in (item['items'] as List? ?? const [])) {
-            if (t['type'] == 'text') buf.write(t['text'] ?? '');
-          }
-          final txt = buf.toString().trim().replaceFirst(
-                RegExp(r'^\s*\[?\d+\]?'),
-                '',
-              ); // drop [7]
+      final paraVid = para['attrs'] is Map
+          ? (para['attrs']['vid'] ?? para['attrs']['sid'])?.toString()
+          : null;
+      if (paraVid != null && paraVid.isNotEmpty) {
+        activeId = normVerseId(paraVid);
+      }
 
-          if (activeId != null && txt.isNotEmpty) {
-            _appendOrMergeVerse(verses, activeId!, txt);
-          }
-          continue;
+      final buf = StringBuffer();
+
+      void flushBuffer() {
+        final txt = buf.toString().trim();
+        buf.clear();
+        if (activeId != null && activeId!.isNotEmpty && txt.isNotEmpty) {
+          _appendOrMergeVerse(verses, activeId!, txt);
         }
+      }
 
-        // ── ② a stand-alone text node (often Scripture-API “partial”) ──
-        if (item['type'] == 'text') {
-          final txt = (item['text'] ?? '').trim();
-          if (txt.isEmpty) continue;
+      void processItems(List<dynamic> items) {
+        for (final item in items) {
+          if (item is! Map) continue;
 
-          // explicit verseId wins, otherwise fall back to current
-          final vId = (item['attrs']?['verseId'] ?? activeId) as String?;
-          if (vId != null && vId.isNotEmpty) {
-            _appendOrMergeVerse(verses, vId, txt);
-            activeId = vId; // keep tracking
+          // ── ① a normal “verse” wrapper ─────────────────────────────
+          if (item['name'] == 'verse' && item['attrs'] is Map) {
+            flushBuffer();
+            final rawVid =
+                (item['attrs']['sid'] ?? item['attrs']['verseId'])?.toString();
+            activeId = (rawVid != null && rawVid.isNotEmpty)
+                ? normVerseId(rawVid)
+                : null;
+            final vBuf = StringBuffer();
+            for (final t in (item['items'] as List? ?? const [])) {
+              if (t is Map && t['type'] == 'text') {
+                vBuf.write(t['text'] ?? '');
+              }
+            }
+            final txt = vBuf.toString().trim().replaceFirst(
+                  RegExp(r'^\s*\[?\d+\]?'),
+                  '',
+                ); // drop [7]
+
+            if (activeId != null && txt.isNotEmpty) {
+              _appendOrMergeVerse(verses, activeId!, txt);
+            }
+            continue;
+          }
+
+          // Skip footnote/cross-reference tags
+          if (item['name'] == 'note') continue;
+
+          // ── ② a text node (top-level or nested inside a "char" tag) ──
+          if (item['type'] == 'text') {
+            final rawTxt = (item['text'] ?? '').toString();
+            if (rawTxt.isEmpty) continue;
+
+            // explicit verseId wins, otherwise fall back to current
+            final rawVId = item['attrs']?['verseId']?.toString();
+            final vId = (rawVId != null && rawVId.isNotEmpty)
+                ? normVerseId(rawVId)
+                : activeId;
+            if (vId != null && vId.isNotEmpty) {
+              if (activeId != null && vId != activeId) {
+                flushBuffer();
+              }
+              activeId = vId; // keep tracking
+              buf.write(rawTxt);
+            }
+            continue;
+          }
+
+          // ── ③ nested tag (e.g. "char" for Strong's, italics, red-letter) ──
+          if (item['items'] is List) {
+            processItems(item['items'] as List);
           }
         }
       }
+
+      if (para['items'] is List) {
+        processItems(para['items'] as List);
+      }
+      flushBuffer();
     }
     return verses;
   }

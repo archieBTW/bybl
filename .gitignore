@@ -105,6 +105,7 @@ vits-piper-en_US-lessac-medium/
 vits-piper-en_US-ryan-medium.tar.bz2
 vits-piper-en_US-ryan-medium/
 Backend/Backend.exe
+Backend/main
 DEPLOYMENT.md
 Frontend/assets/models/
 Frontend/assets/models/temp_espeak_check/

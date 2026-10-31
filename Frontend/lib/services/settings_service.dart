@@ -165,9 +165,18 @@ class SettingsService {
     String? translationId = prefs.getString('translationId');
     String? translationName = prefs.getString('translationName');
 
+    if (translationId == '317e03834065a236-01' ||
+        translationId?.toUpperCase() == 'ESV' ||
+        translationId?.toUpperCase() == 'NIV') {
+      translationId = 'bba9f40183526463-01';
+      translationName = 'Berean Standard Bible';
+    } else if (translationName == 'Berean Standard Version') {
+      translationName = 'Berean Standard Bible';
+    }
+
     return {
       'id': translationId ?? 'bba9f40183526463-01',
-      'name': translationName ?? 'Berean Standard Version',
+      'name': translationName ?? 'Berean Standard Bible',
     };
   }
 

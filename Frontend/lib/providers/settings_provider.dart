@@ -182,15 +182,19 @@ class SettingsProvider with ChangeNotifier {
     _currentThemeMode =
         settings['dark_mode'] ? ThemeMode.dark : ThemeMode.light;
     _isPublicProfile = settings['public_profile'];
+    final rawId = settings["translation_id"]?.toString() ?? '';
+    final isInvalidOrLegacy = rawId.toLowerCase() == 'esv' ||
+        rawId.toLowerCase() == 'niv' ||
+        rawId == '317e03834065a236-01';
     _currentTranslationId =
-        settings["translation_id"].toString().toLowerCase() == 'esv'
-            ? 'bba9f40183526463-01'
-            : settings['translation_id'];
-    _currentTranslationName =
-        settings["translation_name"].toString().toLowerCase() ==
-                'english standard version'
-            ? 'Berean Standard Version'
-            : settings['translation_name'];
+        isInvalidOrLegacy ? 'bba9f40183526463-01' : settings['translation_id'];
+    _currentTranslationName = isInvalidOrLegacy ||
+            settings["translation_name"].toString().toLowerCase() ==
+                'english standard version' ||
+            settings["translation_name"].toString().toLowerCase() ==
+                'berean standard version'
+        ? 'Berean Standard Bible'
+        : settings['translation_name'];
 
     notifyListeners();
   }
@@ -200,47 +204,24 @@ class SettingsProvider with ChangeNotifier {
       List<dynamic> fetchedTranslations =
           await settingsService.fetchTranslations();
 
-      Set<String> seenNames = {};
-      _translations = [];
-
+      Map<String, int> seenNames = {};
       List<dynamic> cleanedTranslations = [];
 
       for (dynamic translation in fetchedTranslations) {
+        final id = translation["id"]?.toString() ?? '';
+        if (id.toUpperCase() == 'ESV' || id.toUpperCase() == 'NIV') {
+          continue;
+        }
         String name = (translation["name"] as String).toLowerCase();
-        if (!seenNames.contains(name)) {
-          seenNames.add(name);
+        if (!seenNames.containsKey(name)) {
+          seenNames[name] = cleanedTranslations.length;
           cleanedTranslations.add(translation);
+        } else if (id == 'bba9f40183526463-01') {
+          cleanedTranslations[seenNames[name]!] = translation;
         }
       }
 
-// Add ESV and NIV manually
-      cleanedTranslations.add({
-        'id': 'bba9f40183526463-01',
-        'name': 'Berean Standard Version',
-      });
-      cleanedTranslations.add({
-        'id': 'NIV',
-        'name': 'New International Version',
-      });
-
       _translations = cleanedTranslations;
-
-      // for (dynamic translation in fetchedTranslations) {
-      //   String name = (translation["name"] as String).toLowerCase();
-      //   if (!seenNames.contains(name)) {
-      //     seenNames.add(name);
-      //     fetchedTranslations.add(translation);
-      //   }
-      // }
-      // _translations = fetchedTranslations;
-      // _translations.add({
-      //   'id': 'bba9f40183526463-01',
-      //   'name': 'Berean Standard Version',
-      // });
-      // _translations.add({
-      //   'id': 'NIV',
-      //   'name': 'New International Version',
-      // });
     }
     notifyListeners();
   }

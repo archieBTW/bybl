@@ -5,8 +5,6 @@
 *.DS_Store
 
 # Go binaries and cache
-main
-Backend/main
 vendor/
 Backend/theword.db
 
