@@ -29,18 +29,22 @@ class _MainAppScreenState extends State<MainAppScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   Future<void> init() async {
-    setState(() {
-      isInitRunning = true;
-    });
+    if (isInitRunning || isInited) return;
+    isInitRunning = true;
 
     await settingsProvider.loadSettings();
     await bibleProvider.fetchBooks(
         settingsProvider.currentTranslationId ?? 'bba9f40183526463-01');
 
-    setState(() {
+    if (mounted) {
+      setState(() {
+        isInited = true;
+        isInitRunning = false;
+      });
+    } else {
       isInited = true;
       isInitRunning = false;
-    });
+    }
   }
 
   @override

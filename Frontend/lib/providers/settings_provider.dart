@@ -29,6 +29,15 @@ class SettingsProvider with ChangeNotifier {
   String? get avatarUrl => _avatarUrl;
   bool loading = false;
 
+  // Reader Typography Settings
+  double _readerFontSize = 18.0;
+  double _readerLineHeight = 1.55;
+  bool _readerUseSerif = false;
+
+  double get readerFontSize => _readerFontSize;
+  double get readerLineHeight => _readerLineHeight;
+  bool get readerUseSerif => _readerUseSerif;
+
   // Gemini API settings
   String? _geminiApiKey;
   String _geminiModel = 'gemini-3.8-flash';
@@ -105,6 +114,10 @@ class SettingsProvider with ChangeNotifier {
     _highlightColor =
         _parseColor(prefs.getInt('highlightColor') ?? Colors.yellow.value);
     _currentThemeMode = await settingsService.loadThemeMode();
+
+    _readerFontSize = prefs.getDouble('readerFontSize') ?? 18.0;
+    _readerLineHeight = prefs.getDouble('readerLineHeight') ?? 1.55;
+    _readerUseSerif = prefs.getBool('readerUseSerif') ?? false;
 
     var translation = await settingsService.loadTranslation();
     _currentTranslationId = translation['id'];
@@ -262,6 +275,27 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateReaderTypography({
+    double? fontSize,
+    double? lineHeight,
+    bool? useSerif,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (fontSize != null) {
+      _readerFontSize = fontSize.clamp(14.0, 28.0);
+      await prefs.setDouble('readerFontSize', _readerFontSize);
+    }
+    if (lineHeight != null) {
+      _readerLineHeight = lineHeight.clamp(1.2, 2.2);
+      await prefs.setDouble('readerLineHeight', _readerLineHeight);
+    }
+    if (useSerif != null) {
+      _readerUseSerif = useSerif;
+      await prefs.setBool('readerUseSerif', _readerUseSerif);
+    }
+    notifyListeners();
+  }
+
   Future<void> updateTranslation(
       String translationId, String translationName) async {
     _currentTranslationId = translationId;
@@ -310,8 +344,6 @@ class SettingsProvider with ChangeNotifier {
     await settingsService.saveAIUserName(name);
     notifyListeners();
   }
-
-
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();

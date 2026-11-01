@@ -1,12 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:TheWord/providers/bible_provider.dart';
 import 'package:TheWord/services/local_storage_service.dart';
 import 'package:TheWord/models/local_bookmark.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
 
 import '../providers/settings_provider.dart';
 import '../providers/verse_provider.dart';
@@ -66,27 +63,10 @@ class _BookmarksScreenState extends State<BookmarksScreen>
     }
   }
 
-  Future<dynamic> fetchChapters(String translationId, String bookId) async {
-    try {
-      final response = await http.get(
-        Uri.parse(
-            'https://api.bybl.dev/api/bible/${translationId}/books/$bookId/chapters'),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        var incomingChapters = data['data'];
-        var chapters =
-            incomingChapters.where((c) => c['number'] != 'intro').toList();
-
-        return chapters;
-      } else {
-        throw Exception('Failed to load chapters');
-      }
-    } catch (e, stack) {
-      debugPrint('🔥 Error: $e\n$stack');
-      return [];
-    }
+  Future<List<dynamic>> fetchChapters(
+      String translationId, String bookId) async {
+    final bibleProvider = Provider.of<BibleProvider>(context, listen: false);
+    return bibleProvider.fetchChapters(translationId, bookId);
   }
 
   Future<void> _deleteBookmark(String bookmarkId) async {
@@ -100,7 +80,6 @@ class _BookmarksScreenState extends State<BookmarksScreen>
   }
 
   Future<void> _deleteHighlight(String highlightId) async {
-    // Use VerseProvider to ensure listeners (like ReaderScreen) are notified
     final verseProvider = Provider.of<VerseProvider>(context, listen: false);
     await verseProvider.unsaveVerse(highlightId);
 
@@ -122,10 +101,9 @@ class _BookmarksScreenState extends State<BookmarksScreen>
         ? settingsProvider.getFontColor(currentColor)
         : fontColor;
 
-    // Subtle card colors that blend in
     final cardColor = isDark
-        ? const Color(0xFF0A0A0A) // Very dark grey (darker)
-        : const Color(0xFFF5F5F5); // Very light grey
+        ? const Color(0xFF0A0A0A)
+        : const Color(0xFFF5F5F5);
 
     return Scaffold(
       appBar: AppBar(
@@ -141,7 +119,7 @@ class _BookmarksScreenState extends State<BookmarksScreen>
         bottom: TabBar(
           controller: _tabController,
           labelColor: effectiveFontColor,
-          unselectedLabelColor: effectiveFontColor?.withOpacity(0.6),
+          unselectedLabelColor: effectiveFontColor.withOpacity(0.6),
           indicatorColor: effectiveFontColor,
           tabs: const [
             Tab(text: 'Chapters'),
@@ -308,7 +286,6 @@ class _BookmarksScreenState extends State<BookmarksScreen>
                                                     translationName: bookmark
                                                         .translationName,
                                                   )));
-                                      // Reload data when returning from reader
                                       _loadData();
                                       Provider.of<VerseProvider>(context,
                                               listen: false)
@@ -325,6 +302,9 @@ class _BookmarksScreenState extends State<BookmarksScreen>
   }
 
   Widget _buildHighlightsTab(ThemeData theme, {required Color cardColor}) {
+    final bibleProvider = Provider.of<BibleProvider>(context);
+    final settingsProvider = Provider.of<SettingsProvider>(context);
+
     return Consumer<VerseProvider>(
       builder: (context, verseProvider, child) {
         if (verseProvider.isLoading) {
@@ -360,7 +340,7 @@ class _BookmarksScreenState extends State<BookmarksScreen>
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 32),
                             child: Text(
-                              'Double-tap on verses while reading to highlight them',
+                              'Tap or double-tap on verses while reading to highlight them',
                               style: TextStyle(
                                   color: Colors.grey[600], fontSize: 12),
                               textAlign: TextAlign.center,
@@ -378,7 +358,14 @@ class _BookmarksScreenState extends State<BookmarksScreen>
                     final highlight = highlights[index];
                     final isExpanded = _expandedHighlightId == highlight.id;
 
-                    // Get or create controller for this highlight
+                    final readableTitle = BibleReferenceFormatter.format(
+                      highlight.verseId,
+                      books: bibleProvider.books,
+                    );
+                    final highlightAccentColor = highlight.colorValue != null
+                        ? Color(highlight.colorValue!)
+                        : (settingsProvider.highlightColor ?? Colors.amber);
+
                     if (!_noteControllers.containsKey(highlight.id)) {
                       final controller =
                           TextEditingController(text: highlight.note ?? '');
@@ -394,11 +381,6 @@ class _BookmarksScreenState extends State<BookmarksScreen>
                       _noteControllers[highlight.id] = controller;
                     }
                     final noteController = _noteControllers[highlight.id]!;
-
-                    // Update controller text if it differs from highlight note and is not being edited?
-                    // No, avoid overwriting user input while they type.
-                    // But if local highlight is updated from outside (e.g. sync), we might want to update.
-                    // For now, if expanded, we trust the controller. If collapsed, it resets on expand.
 
                     return Dismissible(
                       key: Key(highlight.id),
@@ -423,248 +405,274 @@ class _BookmarksScreenState extends State<BookmarksScreen>
                         color: cardColor,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Main content - tappable to expand
-                            InkWell(
-                              onTap: () {
-                                setState(() {
-                                  if (isExpanded) {
-                                    _expandedHighlightId = null;
-                                  } else {
-                                    _expandedHighlightId = highlight.id;
-                                    // Reset controller text when expanding
-                                    noteController.text = highlight.note ?? '';
-                                  }
-                                });
-                              },
-                              borderRadius: BorderRadius.circular(8),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      highlight.content,
-                                      maxLines: isExpanded ? null : 3,
-                                      overflow: isExpanded
-                                          ? TextOverflow.visible
-                                          : TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        height: 1.5,
-                                        fontWeight: FontWeight.w500,
-                                        color: isDark
-                                            ? Colors.grey[300]
-                                            : Colors.grey[800],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            highlight.verseId,
-                                            style: TextStyle(
-                                              color: Colors.grey[500],
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                        if (highlight.note != null &&
-                                            highlight.note!.isNotEmpty &&
-                                            !isExpanded)
-                                          Padding(
-                                            padding:
-                                                const EdgeInsets.only(right: 8),
-                                            child: Icon(
-                                              Icons.note,
-                                              size: 16,
-                                              color: Colors.grey[500],
-                                            ),
-                                          ),
-                                        Icon(
-                                          isExpanded
-                                              ? Icons.expand_less
-                                              : Icons.expand_more,
-                                          color: Colors.grey[500],
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border(
+                              left: BorderSide(
+                                color: highlightAccentColor.withOpacity(0.85),
+                                width: 4,
                               ),
                             ),
-
-                            // Expanded section with note editing
-                            if (isExpanded) ...[
-                              Divider(
-                                height: 1,
-                                color: isDark ? Colors.white12 : Colors.black12,
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Note',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.grey[500],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    TextField(
-                                      controller: noteController,
-                                      maxLines: 3,
-                                      decoration: InputDecoration(
-                                        hintText: 'Add your note here...',
-                                        hintStyle:
-                                            TextStyle(color: Colors.grey[600]),
-                                        filled: true,
-                                        fillColor: isDark
-                                            ? Colors.white.withOpacity(0.05)
-                                            : Colors.black.withOpacity(0.03),
-                                        border: OutlineInputBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          borderSide: BorderSide.none,
-                                        ),
-                                        contentPadding:
-                                            const EdgeInsets.all(12),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.delete,
-                                              size: 20,
-                                              color: Colors.redAccent),
-                                          onPressed: () async {
-                                            final confirmed =
-                                                await _showDeleteConfirmationDialog(
-                                                    context,
-                                                    'Delete Highlight?',
-                                                    'Are you sure you want to delete this highlight?');
-                                            if (confirmed) {
-                                              _noteControllers
-                                                  .remove(highlight.id);
-                                              _deleteHighlight(highlight.id);
-                                            }
-                                          },
-                                        ),
-                                        TextButton.icon(
-                                          icon: Icon(Icons.arrow_forward,
-                                              size: 18,
-                                              color: isDark
-                                                  ? Colors.white
-                                                  : Colors.black),
-                                          label: Text('Go to Verse',
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    if (isExpanded) {
+                                      _expandedHighlightId = null;
+                                    } else {
+                                      _expandedHighlightId = highlight.id;
+                                      noteController.text =
+                                          highlight.note ?? '';
+                                    }
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(10),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            width: 10,
+                                            height: 10,
+                                            margin: const EdgeInsets.only(
+                                                right: 8),
+                                            decoration: BoxDecoration(
+                                              color: highlightAccentColor,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Text(
+                                              readableTitle,
                                               style: TextStyle(
-                                                  color: isDark
-                                                      ? Colors.white
-                                                      : Colors.black)),
-                                          onPressed: () async {
-                                            final settings =
-                                                Provider.of<SettingsProvider>(
-                                                    context,
-                                                    listen: false);
-
-                                            final currentTranslationId =
-                                                settings.currentTranslationId ??
-                                                    'bba9f40183526463-01';
-                                            final currentTranslationName =
-                                                settings.currentTranslationName ??
-                                                    'Berean Standard Bible';
-
-                                            // Parse verseId to get book and chapter
-                                            // Formats: GEN.1.1 or GEN.1:1
-                                            final parts = highlight.verseId
-                                                .split(RegExp(r'[.:]'));
-                                            if (parts.length < 3)
-                                              return; // Malformed ID
-
-                                            final bookId = parts[0];
-                                            final chapterNum = parts[1];
-                                            final verseNum = parts[2];
-                                            final chapterId =
-                                                '$bookId.$chapterNum';
-
-                                            // Normalize targetVerseId for the current translation
-                                            String targetVerseId;
-                                            if (currentTranslationId == 'ESV') {
-                                              targetVerseId =
-                                                  '$chapterId:$verseNum';
-                                            } else {
-                                              targetVerseId =
-                                                  '$chapterId.$verseNum';
-                                            }
-
-                                            var chapters = await fetchChapters(
-                                                currentTranslationId, bookId);
-
-                                            String bookName = bookId;
-                                            try {
-                                              final bible =
-                                                  Provider.of<BibleProvider>(
-                                                      context,
-                                                      listen: false);
-                                              final book = bible.books
-                                                  .firstWhere(
-                                                      (b) => b['id'] == bookId,
-                                                      orElse: () =>
-                                                          {'name': bookId});
-                                              bookName = book['name'];
-                                            } catch (_) {}
-
-                                            if (mounted) {
-                                              await Navigator.of(context).push(
-                                                MaterialPageRoute(
-                                                  builder: (_) => ReaderScreen(
-                                                    bookId: bookId,
-                                                    chapterId: chapterId,
-                                                    chapterName:
-                                                        "Chapter $chapterNum",
-                                                    chapterIds: chapters
-                                                        .map((c) => c['id'])
-                                                        .toList(),
-                                                    chapterNames: chapters
-                                                        .map((c) =>
-                                                            'Chapter ${c['number']}')
-                                                        .toList(),
-                                                    bookName: bookName,
-                                                    translationId:
-                                                        currentTranslationId,
-                                                    translationName:
-                                                        currentTranslationName,
-                                                    targetVerseId:
-                                                        targetVerseId,
-                                                  ),
-                                                ),
-                                              );
-                                              _loadData();
-                                              Provider.of<VerseProvider>(
-                                                      context,
-                                                      listen: false)
-                                                  .fetchSavedVerses();
-                                            }
-                                          },
+                                                color: isDark
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          if (highlight.note != null &&
+                                              highlight.note!.isNotEmpty &&
+                                              !isExpanded)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  right: 8),
+                                              child: Icon(
+                                                Icons.note,
+                                                size: 16,
+                                                color: Colors.grey[500],
+                                              ),
+                                            ),
+                                          Icon(
+                                            isExpanded
+                                                ? Icons.expand_less
+                                                : Icons.expand_more,
+                                            color: Colors.grey[500],
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        highlight.content,
+                                        maxLines: isExpanded ? null : 3,
+                                        overflow: isExpanded
+                                            ? TextOverflow.visible
+                                            : TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          height: 1.5,
+                                          fontWeight: FontWeight.w400,
+                                          color: isDark
+                                              ? Colors.grey[300]
+                                              : Colors.grey[800],
                                         ),
-                                      ],
-                                    ),
-                                  ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
+                              if (isExpanded) ...[
+                                Divider(
+                                  height: 1,
+                                  color:
+                                      isDark ? Colors.white12 : Colors.black12,
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Note',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.grey[500],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      TextField(
+                                        controller: noteController,
+                                        maxLines: 3,
+                                        decoration: InputDecoration(
+                                          hintText: 'Add your note here...',
+                                          hintStyle: TextStyle(
+                                              color: Colors.grey[600]),
+                                          filled: true,
+                                          fillColor: isDark
+                                              ? Colors.white.withOpacity(0.05)
+                                              : Colors.black.withOpacity(0.03),
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          contentPadding:
+                                              const EdgeInsets.all(12),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.delete,
+                                                size: 20,
+                                                color: Colors.redAccent),
+                                            onPressed: () async {
+                                              final confirmed =
+                                                  await _showDeleteConfirmationDialog(
+                                                      context,
+                                                      'Delete Highlight?',
+                                                      'Are you sure you want to delete this highlight?');
+                                              if (confirmed) {
+                                                _noteControllers
+                                                    .remove(highlight.id);
+                                                _deleteHighlight(highlight.id);
+                                              }
+                                            },
+                                          ),
+                                          TextButton.icon(
+                                            icon: Icon(Icons.arrow_forward,
+                                                size: 18,
+                                                color: isDark
+                                                    ? Colors.white
+                                                    : Colors.black),
+                                            label: Text('Go to Verse',
+                                                style: TextStyle(
+                                                    color: isDark
+                                                        ? Colors.white
+                                                        : Colors.black)),
+                                            onPressed: () async {
+                                              final settings =
+                                                  Provider.of<SettingsProvider>(
+                                                      context,
+                                                      listen: false);
+
+                                              final currentTranslationId =
+                                                  settings.currentTranslationId ??
+                                                      'bba9f40183526463-01';
+                                              final currentTranslationName =
+                                                  settings.currentTranslationName ??
+                                                      'Berean Standard Bible';
+
+                                              final parts = highlight.verseId
+                                                  .split(RegExp(r'[.:]'));
+                                              if (parts.length < 3) return;
+
+                                              final bookId = parts[0];
+                                              final chapterNum = parts[1];
+                                              final verseNum = parts[2];
+                                              final chapterId =
+                                                  '$bookId.$chapterNum';
+
+                                              String targetVerseId;
+                                              if (currentTranslationId ==
+                                                  'ESV') {
+                                                targetVerseId =
+                                                    '$chapterId:$verseNum';
+                                              } else {
+                                                targetVerseId =
+                                                    '$chapterId.$verseNum';
+                                              }
+
+                                              var chapters =
+                                                  await fetchChapters(
+                                                      currentTranslationId,
+                                                      bookId);
+
+                                              String bookName = bookId;
+                                              try {
+                                                final bible = Provider.of<
+                                                        BibleProvider>(
+                                                    context,
+                                                    listen: false);
+                                                final book = bible.books
+                                                    .firstWhere(
+                                                        (b) =>
+                                                            b['id'] == bookId,
+                                                        orElse: () =>
+                                                            {'name': bookId});
+                                                bookName = book['name'];
+                                              } catch (_) {}
+
+                                              if (mounted) {
+                                                await Navigator.of(context)
+                                                    .push(
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        ReaderScreen(
+                                                      bookId: bookId,
+                                                      chapterId: chapterId,
+                                                      chapterName:
+                                                          "Chapter $chapterNum",
+                                                      chapterIds: chapters
+                                                          .map((c) => c['id'])
+                                                          .toList(),
+                                                      chapterNames: chapters
+                                                          .map((c) =>
+                                                              'Chapter ${c['number']}')
+                                                          .toList(),
+                                                      bookName: bookName,
+                                                      translationId:
+                                                          currentTranslationId,
+                                                      translationName:
+                                                          currentTranslationName,
+                                                      targetVerseId:
+                                                          targetVerseId,
+                                                    ),
+                                                  ),
+                                                );
+                                                _loadData();
+                                                Provider.of<VerseProvider>(
+                                                        context,
+                                                        listen: false)
+                                                    .fetchSavedVerses();
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     );

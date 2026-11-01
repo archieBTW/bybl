@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/local_bookmark.dart';
+import 'chat_service.dart';
 
 class LocalStorageService {
   static const String _bookmarksKey = 'local_bookmarks';
@@ -35,11 +36,20 @@ class LocalStorageService {
     await prefs.setStringList(_bookmarksKey, bookmarksJson);
   }
 
-  /// Delete a bookmark
+  /// Delete a bookmark by ID
   static Future<void> deleteBookmark(String bookmarkId) async {
     final prefs = await SharedPreferences.getInstance();
     final bookmarks = await getBookmarks();
     bookmarks.removeWhere((b) => b.id == bookmarkId);
+    final bookmarksJson = bookmarks.map((b) => b.toJsonString()).toList();
+    await prefs.setStringList(_bookmarksKey, bookmarksJson);
+  }
+
+  /// Delete a bookmark by chapterId
+  static Future<void> deleteBookmarkByChapterId(String chapterId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final bookmarks = await getBookmarks();
+    bookmarks.removeWhere((b) => b.chapterId == chapterId);
     final bookmarksJson = bookmarks.map((b) => b.toJsonString()).toList();
     await prefs.setStringList(_bookmarksKey, bookmarksJson);
   }
@@ -85,25 +95,35 @@ class LocalStorageService {
     return highlights;
   }
 
-  /// Save a highlight locally
+  /// Save or update a highlight locally
   static Future<LocalHighlight> saveHighlight({
     required String verseId,
     required String content,
     String? note,
+    int? colorValue,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final highlights = await getHighlights();
 
     // Check if already highlighted
-    final existing = highlights.where((h) => h.verseId == verseId).firstOrNull;
-    if (existing != null) {
-      return existing; // Already exists
+    final existingIdx = highlights.indexWhere((h) => h.verseId == verseId);
+    if (existingIdx != -1) {
+      final existing = highlights[existingIdx];
+      if (colorValue != null && existing.colorValue != colorValue) {
+        final updated = existing.copyWith(colorValue: colorValue);
+        highlights[existingIdx] = updated;
+        final highlightsJson = highlights.map((h) => h.toJsonString()).toList();
+        await prefs.setStringList(_highlightsKey, highlightsJson);
+        return updated;
+      }
+      return existing;
     }
 
     final highlight = LocalHighlight.create(
       verseId: verseId,
       content: content,
       note: note,
+      colorValue: colorValue,
     );
 
     highlights.add(highlight);
@@ -157,6 +177,7 @@ class LocalStorageService {
         verseId: old.verseId,
         content: old.content,
         note: note,
+        colorValue: old.colorValue,
         createdAt: old.createdAt,
       );
       final highlightsJson = highlights.map((h) => h.toJsonString()).toList();
@@ -169,6 +190,7 @@ class LocalStorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_highlightsKey);
   }
+
   // ─────────────────────────────── READ CHAPTERS ───────────────────────────────
 
   /// Get all read chapters
@@ -222,7 +244,6 @@ class LocalStorageService {
       'translationId': prefs.getString('translationId'),
       'translationName': prefs.getString('translationName'),
       'geminiModel': prefs.getString('geminiModel'),
-      // Note: We don't export the API key for security
     };
 
     final data = {
@@ -301,6 +322,7 @@ class LocalStorageService {
 
       final chatsJsonList = existingChats.map((c) => jsonEncode(c)).toList();
       await prefs.setStringList(_savedChatsKey, chatsJsonList);
+      ChatService.invalidateCache();
     }
 
     // Import settings

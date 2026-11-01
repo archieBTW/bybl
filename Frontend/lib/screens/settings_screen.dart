@@ -266,7 +266,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.only(left: 16.0, top: 8),
-                child: Text('Highlighter Color',
+                child: Text('Default Highlighter Color',
                     style: Theme.of(context).textTheme.bodyMedium),
               ),
               _buildColorGrid(

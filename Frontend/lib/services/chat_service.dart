@@ -1,180 +1,365 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/saved_chat.dart';
-import '../models/user_settings_enums.dart'; // import enums
+import '../models/user_settings_enums.dart';
 import 'settings_service.dart';
 import 'package:string_similarity/string_similarity.dart';
 
 class ChatService {
   final String _apiBase = 'https://api.bybl.dev/api';
 
+  /// When true, this instance is an isolated temporary session (e.g. for a
+  /// chapter/verse summary modal). It keeps its own multi-turn conversation
+  /// history in memory and never reads or writes main chat history/memory.
+  final bool isTemporary;
+
   final List<Map<String, String>> _conversationHistory = [];
 
   static const String _savedChatsKey = 'saved_chats';
   static const String _currentChatIdKey = 'current_chat_id';
+  static const String _memoryNotesKey = 'ai_companion_memory_notes';
+  static const int _maxHistoryTurnsSent = 24;
+
+  // Shared in-memory caches across main ChatService instances to avoid
+  // repeated SharedPreferences disk reads and JSON decoding on every turn.
+  static List<SavedChat>? _cachedSavedChats;
+  static String? _cachedMemoryNotes;
+  static final Set<String> _summariesInFlight = {};
+  static final http.Client _sharedHttpClient = http.Client();
 
   String? _currentChatId;
   String? get currentChatId => _currentChatId;
 
-  // REMOVED static const _systemPrompt
+  List<Map<String, String>> get conversationHistory =>
+      List.unmodifiable(_conversationHistory);
 
-  Future<String> buildSystemPrompt(String? userQuery, {bool useFullMemory = true}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final settingsService = SettingsService(); // Instantiate to load enums
+  ChatService({this.isTemporary = false});
+
+  factory ChatService.temporary() => ChatService(isTemporary: true);
+
+  /// Invalidates the in-memory saved chats cache (e.g. after import or external update).
+  static void invalidateCache() {
+    _cachedSavedChats = null;
+    _cachedMemoryNotes = null;
+  }
+
+  Future<String> buildSystemPrompt(
+    String? userQuery, {
+    bool useFullMemory = true,
+  }) async {
+    final settingsService = SettingsService();
 
     final denom = await settingsService.loadDenomination();
     final context = await settingsService.loadAIContext();
     final userName = await settingsService.loadAIUserName();
 
-    String prompt =
-        "You are a Christian AI assistant that lives inside of a bible app called bybl. ";
+    final effectiveUseMemory = useFullMemory && !isTemporary;
 
-    if (useFullMemory && userName != null && userName.isNotEmpty) {
-      prompt += "The user's name is $userName. Address them by their name when appropriate. ";
+    final buffer = StringBuffer(
+      "You are Bible Companion, a thoughtful Christian AI assistant inside the bybl Bible app. ",
+    );
+
+    if (userName != null && userName.trim().isNotEmpty) {
+      buffer.write(
+        "The user's name is ${userName.trim()}. Address them naturally by name when appropriate. ",
+      );
     }
 
-    prompt += "You are assisting a user who identifies as ${denom.label}. ";
-    prompt += "Provide answers that are ${context.label}. ";
+    buffer.write("You are assisting a user who identifies as ${denom.label}. ");
+    buffer.write("Provide answers that are ${context.label}. ");
 
     if (context == AIContext.academic) {
-      prompt +=
-          "Focus on historical context, original languages, and critical scholarship. ";
+      buffer.write(
+        "Focus on historical context, original languages, and critical scholarship. ",
+      );
     } else if (context == AIContext.devotional ||
         context == AIContext.pastoral) {
-      prompt +=
-          "Focus on spiritual application, encouragement, and faithful interpretation. ";
+      buffer.write(
+        "Focus on spiritual application, encouragement, and faithful interpretation. ",
+      );
     }
 
-    prompt += "Always provide the relevant NRSVue verses to give context. ";
-    prompt +=
-        "However, if the user asks for a summary of an entire chapter, do NOT provide the full chapter text; only cite a few key verses. ";
-    prompt +=
-        "When analyzing texts, provide the original Greek or Hebrew keywords and their meanings to deepen the user's understanding. ";
-    prompt += "Never curse. ";
+    if (isTemporary || !effectiveUseMemory) {
+      buffer.write(
+        "You are currently in a focused passage/verse study & summarization modal. "
+        "Maintain continuity with the passage and summary already discussed in this modal session so follow-up questions are answered directly and accurately in context. ",
+      );
+    }
+
+    buffer.write("Always provide relevant Scripture references to give context. ");
+    buffer.write(
+      "However, if the user asks for a summary of an entire chapter, do NOT output the full chapter text; only cite key verses. ",
+    );
+    buffer.write(
+      "When analyzing texts, provide relevant original Greek or Hebrew keywords and their meanings to deepen understanding. ",
+    );
+    buffer.write("Never curse. ");
 
     if (denom == Denomination.catholic) {
-      prompt += "Be respectful of Catholic tradition and the Deuterocanon. ";
+      buffer.write("Be respectful of Catholic tradition and the Deuterocanon. ");
     } else if (denom == Denomination.evangelical) {
-      prompt +=
-          "Emphasize the authority of Scripture and personal relationship with God. ";
+      buffer.write(
+        "Emphasize the authority of Scripture and personal relationship with God. ",
+      );
     } else if (denom == Denomination.atheist) {
-      prompt +=
-          "Be respectful of skepticism and focus on literary/historical analysis without assuming belief. ";
+      buffer.write(
+        "Be respectful of skepticism and focus on literary/historical analysis without assuming belief. ",
+      );
     } else if (denom == Denomination.orthodox ||
         denom == Denomination.copticOrthodox) {
-      prompt +=
-          "Emphasize the Church Fathers, the Septuagint, and Holy Tradition. ";
+      buffer.write(
+        "Emphasize the Church Fathers, the Septuagint, and Holy Tradition. ",
+      );
     } else if (denom == Denomination.seventhDayAdventist) {
-      prompt +=
-          "Be respectful of the Sabbath, wholeness, and the Second Coming. ";
+      buffer.write(
+        "Be respectful of the Sabbath, wholeness, and the Second Coming. ",
+      );
     } else if (denom == Denomination.latterDaySaint) {
-      prompt += "Be respectful of Latter-day Saint beliefs and terminology. ";
+      buffer.write(
+        "Be respectful of Latter-day Saint beliefs and terminology. ",
+      );
     } else if (denom == Denomination.messianicJewish) {
-      prompt +=
-          "Emphasize the Jewish roots of the faith and the connection between the Tanakh and the New Testament. ";
+      buffer.write(
+        "Emphasize the Jewish roots of the faith and the connection between the Tanakh and the New Testament. ",
+      );
     } else if (denom == Denomination.quaker) {
-      prompt += "Emphasize the Inner Light, simplicity, and peace. ";
+      buffer.write("Emphasize the Inner Light, simplicity, and peace. ");
     } else if (denom == Denomination.anglican ||
         denom == Denomination.mainlineProtestant) {
-      prompt += "Balance scripture, tradition, and reason. ";
+      buffer.write("Balance scripture, tradition, and reason. ");
     } else if (denom == Denomination.reformed ||
         denom == Denomination.presbyterian) {
-      prompt +=
-          "Emphasize the sovereignty of God, covenant theology, and the doctrines of grace. ";
+      buffer.write(
+        "Emphasize the sovereignty of God, covenant theology, and the doctrines of grace. ",
+      );
     } else if (denom == Denomination.pentecostal ||
         denom == Denomination.assemblyOfGod) {
-      prompt +=
-          "Emphasize the work of the Holy Spirit, spiritual gifts, and personal experience of God. ";
+      buffer.write(
+        "Emphasize the work of the Holy Spirit, spiritual gifts, and personal experience of God. ",
+      );
     } else if (denom == Denomination.lutheran) {
-      prompt +=
-          "Emphasize justification by grace through faith and the distinction between Law and Gospel. ";
+      buffer.write(
+        "Emphasize justification by grace through faith and the distinction between Law and Gospel. ",
+      );
     } else if (denom == Denomination.baptist) {
-      prompt +=
-          "Emphasize believer's baptism, local church autonomy, and the priesthood of all believers. ";
+      buffer.write(
+        "Emphasize believer's baptism, local church autonomy, and the priesthood of all believers. ",
+      );
     } else if (denom == Denomination.methodist ||
         denom == Denomination.nazarene) {
-      prompt += "Emphasize holiness, sanctification, and prevenient grace. ";
+      buffer.write("Emphasize holiness, sanctification, and prevenient grace. ");
     } else if (denom == Denomination.churchOfChrist) {
-      prompt +=
-          "Emphasize a return to New Testament Christianity and silence where the Bible is silent. ";
+      buffer.write(
+        "Emphasize a return to New Testament Christianity and silence where the Bible is silent. ",
+      );
     } else if (denom == Denomination.anabaptist) {
-      prompt += "Emphasize discipleship, non-violence, and community. ";
+      buffer.write("Emphasize discipleship, non-violence, and community. ");
     } else if (denom == Denomination.jewish) {
-      prompt +=
-          "Be respectful of Jewish tradition, the Torah, and Talmudic commentary. Contextualize from a perspective of interfaith dialogue. ";
+      buffer.write(
+        "Be respectful of Jewish tradition, the Torah, and Talmudic commentary. Contextualize from a perspective of interfaith dialogue. ",
+      );
     } else if (denom == Denomination.muslim) {
-      prompt +=
-          "Be respectful of Islamic beliefs while explaining the Christian perspective clearly and kindly. ";
+      buffer.write(
+        "Be respectful of Islamic beliefs while explaining the Christian perspective clearly and kindly. ",
+      );
     } else if (denom == Denomination.agnostic) {
-      prompt +=
-          "Be explanatory and accessible, assuming good faith curiosity without demanding commitment. ";
+      buffer.write(
+        "Be explanatory and accessible, assuming good faith curiosity without demanding commitment. ",
+      );
     } else if (denom == Denomination.nondenominational) {
-      prompt += "Focus on " +
-          (context == AIContext.academic ? "ecumenical" : "broad evangelical") +
-          " Christian themes without denominational distinctives. ";
+      buffer.write(
+        "Focus on ${context == AIContext.academic ? "ecumenical" : "broad evangelical"} Christian themes without denominational distinctives. ",
+      );
     }
 
-    prompt +=
-        "Cite Bible books/chapters/verses (use lesser‑known ones when possible). Don't repeat the user's request at the top of your reply, don't label the response, and don't repeat your own answers.";
+    buffer.write(
+      "Cite Bible books/chapters/verses (use lesser-known ones when helpful). "
+      "Don't repeat the user's request at the top of your reply, don't label the response, and don't repeat your own answers.",
+    );
 
-    if (useFullMemory && userQuery != null && userQuery.isNotEmpty) {
-      // True RAG over past chats
+    if (effectiveUseMemory) {
       try {
-        final prefs = await SharedPreferences.getInstance();
-        final apiKey = prefs.getString('geminiApiKey');
-        if (apiKey != null && apiKey.isNotEmpty) {
-           final queryEmbedding = await _getEmbedding(userQuery, apiKey);
-           if (queryEmbedding != null) {
-              final chats = await getSavedChats();
-              List<Map<String, dynamic>> scoredChats = [];
-              for (var chat in chats) {
-                if (chat.id == _currentChatId || chat.summary == null || chat.embedding == null) continue;
-                double score = _cosineSimilarity(queryEmbedding, chat.embedding!);
-                if (score > 0.5) { // Threshold for similarity
-                  scoredChats.add({'score': score, 'summary': chat.summary, 'title': chat.title});
-                }
-              }
-              scoredChats.sort((a, b) => (b['score'] as double).compareTo(a['score'] as double));
-              final topMemory = scoredChats.take(3).toList();
-              if (topMemory.isNotEmpty) {
-                prompt += "\n\nRelevant past memories from the user (for context only):\n";
-                for (var mem in topMemory) {
-                  prompt += "- From previous chat '${mem['title']}': \"${mem['summary']}\"\n";
-                }
-              }
-           }
+        final memoryContext = await _buildCrossChatMemoryContext(userQuery);
+        if (memoryContext.isNotEmpty) {
+          buffer.write("\n\n$memoryContext");
         }
       } catch (e) {
-        debugPrint('Error loading RAG memory: $e');
+        debugPrint('Error loading cross-chat memory: $e');
       }
     }
 
-    return prompt;
+    return buffer.toString();
+  }
+
+  /// Builds fast, zero-network-latency cross-chat memory combining:
+  /// 1. Persistent user memory notes extracted across sessions
+  /// 2. Immediate recency memory from the most recent past chats (even if an LLM summary hasn't run yet)
+  /// 3. Local keyword + similarity search across older chats for query-relevant context
+  Future<String> _buildCrossChatMemoryContext(String? userQuery) async {
+    final prefs = await SharedPreferences.getInstance();
+    _cachedMemoryNotes ??= prefs.getString(_memoryNotesKey) ?? '';
+
+    final chats = await getSavedChats();
+    final pastChats = chats
+        .where((c) => c.id != _currentChatId && c.messages.isNotEmpty)
+        .toList();
+
+    final sections = <String>[];
+
+    if (_cachedMemoryNotes != null && _cachedMemoryNotes!.trim().isNotEmpty) {
+      sections.add(
+        "Persistent user memory & study profile:\n${_cachedMemoryNotes!.trim()}",
+      );
+    }
+
+    if (pastChats.isNotEmpty) {
+      // 1. Always include up to 3 most recent past chats for seamless continuity across chats
+      final recentChats = pastChats.take(3).toList();
+      final recentIds = recentChats.map((c) => c.id).toSet();
+
+      final recentLines = <String>[];
+      for (final chat in recentChats) {
+        final digest = _getChatMemoryDigest(chat);
+        if (digest.isNotEmpty) {
+          recentLines.add("- [${chat.title}]: $digest");
+        }
+      }
+
+      // 2. Search older chats locally for high relevance to the current userQuery (0ms network latency)
+      final relevantLines = <String>[];
+      if (userQuery != null &&
+          userQuery.trim().isNotEmpty &&
+          pastChats.length > 3) {
+        final olderChats =
+            pastChats.where((c) => !recentIds.contains(c.id)).toList();
+        final scored = <Map<String, dynamic>>[];
+
+        for (final chat in olderChats) {
+          final digest = _getChatMemoryDigest(chat);
+          if (digest.isEmpty) continue;
+          final score =
+              _computeLocalRelevance(userQuery, '${chat.title} $digest');
+          if (score > 0.18) {
+            scored.add({
+              'score': score,
+              'title': chat.title,
+              'digest': digest,
+            });
+          }
+        }
+
+        scored.sort(
+          (a, b) => (b['score'] as double).compareTo(a['score'] as double),
+        );
+
+        for (final item in scored.take(3)) {
+          relevantLines.add("- [${item['title']}]: ${item['digest']}");
+        }
+      }
+
+      if (recentLines.isNotEmpty) {
+        sections.add(
+          "Recent conversations with this user (use naturally for continuity when relevant):\n${recentLines.join('\n')}",
+        );
+      }
+      if (relevantLines.isNotEmpty) {
+        sections.add(
+          "Relevant older conversations with this user:\n${relevantLines.join('\n')}",
+        );
+      }
+    }
+
+    if (sections.isEmpty) return '';
+    return "=== CROSS-CHAT MEMORY ===\n${sections.join('\n\n')}\n=== END MEMORY ===";
+  }
+
+  /// Returns the saved LLM summary for a chat, or builds an instant fallback
+  /// digest directly from the chat's messages if the summary hasn't been generated yet.
+  String _getChatMemoryDigest(SavedChat chat) {
+    if (chat.summary != null && chat.summary!.trim().isNotEmpty) {
+      return chat.summary!.trim();
+    }
+    if (chat.messages.isEmpty) return '';
+
+    final snippets = <String>[];
+    final relevantMessages = chat.messages.length > 6
+        ? chat.messages.sublist(chat.messages.length - 6)
+        : chat.messages;
+
+    for (final msg in relevantMessages) {
+      final clean = msg.content.replaceAll('\n', ' ').trim();
+      if (clean.isEmpty) continue;
+      final truncated =
+          clean.length > 140 ? '${clean.substring(0, 140)}...' : clean;
+      final prefix = msg.role == 'user' ? 'User asked' : 'Assistant replied';
+      snippets.add('$prefix: "$truncated"');
+    }
+    return snippets.join(' | ');
+  }
+
+  double _computeLocalRelevance(String query, String candidate) {
+    final qLower = query.toLowerCase().trim();
+    final cLower = candidate.toLowerCase().trim();
+    if (qLower.isEmpty || cLower.isEmpty) return 0.0;
+
+    final stopWords = <String>{
+      'the', 'and', 'for', 'that', 'this', 'with', 'from', 'what', 'how',
+      'why', 'who', 'when', 'where', 'are', 'was', 'were', 'have', 'has',
+      'had', 'can', 'could', 'would', 'should', 'about', 'into', 'your',
+      'you', 'bible', 'verse', 'chapter', 'tell', 'mean', 'does', 'did',
+    };
+
+    final queryTokens = qLower
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((t) => t.length > 2 && !stopWords.contains(t))
+        .toSet();
+
+    double tokenScore = 0.0;
+    if (queryTokens.isNotEmpty) {
+      int matches = 0;
+      for (final token in queryTokens) {
+        if (cLower.contains(token)) matches++;
+      }
+      tokenScore = matches / queryTokens.length;
+    }
+
+    final diceScore = StringSimilarity.compareTwoStrings(
+      qLower.length > 120 ? qLower.substring(0, 120) : qLower,
+      cLower.length > 300 ? cLower.substring(0, 300) : cLower,
+    );
+
+    return (tokenScore * 0.7) + (diceScore * 0.3);
   }
 
   // ─────────────────────────────── CHAT PERSISTENCE ───────────────────────────
 
-  /// Get all saved chats, sorted by most recent first
-  Future<List<SavedChat>> getSavedChats() async {
+  /// Get all saved chats, sorted by most recent first (cached in memory)
+  Future<List<SavedChat>> getSavedChats({bool forceReload = false}) async {
+    if (!forceReload && _cachedSavedChats != null) {
+      return List<SavedChat>.from(_cachedSavedChats!);
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final chatsJson = prefs.getStringList(_savedChatsKey) ?? [];
     final chats =
         chatsJson.map((json) => SavedChat.fromJsonString(json)).toList();
     chats.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return chats;
+    _cachedSavedChats = chats;
+    return List<SavedChat>.from(chats);
   }
 
   /// Save a chat to local storage
   Future<void> saveChat(SavedChat chat, {bool skipSummary = false}) async {
+    if (isTemporary) return;
+
     final prefs = await SharedPreferences.getInstance();
     final chats = await getSavedChats();
 
-    // Find and update existing or add new
     final existingIndex = chats.indexWhere((c) => c.id == chat.id);
     if (existingIndex != -1) {
       chats[existingIndex] = chat;
@@ -182,11 +367,14 @@ class ChatService {
       chats.add(chat);
     }
 
+    chats.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    _cachedSavedChats = chats;
+
     final chatsJson = chats.map((c) => c.toJsonString()).toList();
     await prefs.setStringList(_savedChatsKey, chatsJson);
 
     if (!skipSummary) {
-      _generateSummaryAndEmbedding(chat);
+      unawaited(_generateSummaryAndMemoryInBackground(chat));
     }
   }
 
@@ -195,6 +383,7 @@ class ChatService {
     final prefs = await SharedPreferences.getInstance();
     final chats = await getSavedChats();
     chats.removeWhere((c) => c.id == chatId);
+    _cachedSavedChats = chats;
     final chatsJson = chats.map((c) => c.toJsonString()).toList();
     await prefs.setStringList(_savedChatsKey, chatsJson);
   }
@@ -204,6 +393,9 @@ class ChatService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_savedChatsKey);
     await prefs.remove(_currentChatIdKey);
+    await prefs.remove(_memoryNotesKey);
+    _cachedSavedChats = [];
+    _cachedMemoryNotes = '';
     _currentChatId = null;
     _clearHistory();
   }
@@ -217,9 +409,10 @@ class ChatService {
       _currentChatId = chat.id;
       _loadHistoryFromChat(chat);
 
-      // Save current chat ID
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_currentChatIdKey, chatId);
+      if (!isTemporary) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_currentChatIdKey, chatId);
+      }
     }
 
     return chat;
@@ -233,12 +426,10 @@ class ChatService {
       _clearHistory();
     }
 
-    // Save the new empty chat - REMOVED to prevent blank chats in history
-    // await saveChat(chat);
-
-    // Save current chat ID
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_currentChatIdKey, chat.id);
+    if (!isTemporary) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_currentChatIdKey, chat.id);
+    }
 
     return chat;
   }
@@ -253,16 +444,18 @@ class ChatService {
       if (chat != null) return chat;
     }
 
-    // No current chat or it was deleted, create new one
     return await startNewChat();
   }
 
   /// Save the current chat state with messages
-  Future<void> saveCurrentChat(List<String> displayMessages,
-      {String? title}) async {
+  Future<void> saveCurrentChat(
+    List<String> displayMessages, {
+    String? title,
+    bool skipSummary = false,
+  }) async {
+    if (isTemporary) return;
+
     if (_currentChatId == null) {
-      // Don't clear history here, as we likely have in-memory history we want to keep
-      // (e.g. from a summary session that is just now being saved)
       final chat = await startNewChat(clearHistory: false);
       _currentChatId = chat.id;
     }
@@ -273,11 +466,6 @@ class ChatService {
 
     SavedChat updatedChat;
     if (existingIndex != -1) {
-      // Keep existing title if not provided and valid, or update if provided
-      // If title is provided, use it.
-      // If not, and existing title is 'New Chat', try to generate.
-      // If existing title is customized, keep it.
-
       String newTitle = chats[existingIndex].title;
       if (title != null) {
         newTitle = title;
@@ -301,7 +489,7 @@ class ChatService {
       );
     }
 
-    await saveChat(updatedChat);
+    await saveChat(updatedChat, skipSummary: skipSummary);
   }
 
   String _generateTitle(List<ChatMessage> messages) {
@@ -325,7 +513,9 @@ class ChatService {
       } else {
         return ChatMessage(
           role: 'assistant',
-          content: msg.replaceFirst('**Bible Companion**: ', '').replaceFirst('**Archie**: ', ''),
+          content: msg
+              .replaceFirst('**Bible Companion**: ', '')
+              .replaceFirst('**Archie**: ', ''),
         );
       }
     }).toList();
@@ -356,6 +546,10 @@ class ChatService {
     _conversationHistory.clear();
   }
 
+  void clearHistory() {
+    _clearHistory();
+  }
+
   void addToHistory(String role, String content) {
     _conversationHistory.add({
       'role': role,
@@ -363,11 +557,30 @@ class ChatService {
     });
   }
 
+  /// Returns a windowed view of conversation history so very long chats stay fast
+  /// while preserving the initial context and the latest turns.
+  List<Map<String, String>> _getWindowedHistory(
+      List<Map<String, String>> fullHistory) {
+    if (fullHistory.length <= _maxHistoryTurnsSent) {
+      return fullHistory;
+    }
+    return [
+      fullHistory[0],
+      fullHistory[1],
+      ...fullHistory.sublist(fullHistory.length - (_maxHistoryTurnsSent - 2)),
+    ];
+  }
+
   /// Streams a response from the AI.
-  /// Set [useHistory] to false for one-shot requests (like summarization) that shouldn't
-  /// track or use conversation history.
-  Stream<String> streamResponse(String userMessage,
-      {bool useHistory = true, bool isMainChat = true}) async* {
+  /// Set [useHistory] to false for one-shot requests that shouldn't track history.
+  /// Set [isMainChat] to false for temporary modal sessions (like chapter/verse summaries)
+  /// so they use their own isolated history without pulling in or saving to main chat memory.
+  Stream<String> streamResponse(
+    String userMessage, {
+    bool useHistory = true,
+    bool isMainChat = true,
+  }) async* {
+    final effectiveMainChat = isMainChat && !isTemporary;
     if (useHistory) {
       addToHistory('user', userMessage);
     }
@@ -381,53 +594,81 @@ class ChatService {
 
     Stream<String> responseStream;
 
-    // Use Gemini directly if API key is set
     if (geminiApiKey != null && geminiApiKey.isNotEmpty) {
       responseStream = _streamGeminiResponse(
-          userMessage, geminiApiKey, geminiModel,
-          useHistory: useHistory, isMainChat: isMainChat);
+        userMessage,
+        geminiApiKey,
+        geminiModel,
+        useHistory: useHistory,
+        isMainChat: effectiveMainChat,
+      );
     } else {
       responseStream = _streamBackendResponse(
-          userMessage, prefs.getString('token'),
-          useHistory: useHistory, isMainChat: isMainChat);
+        userMessage,
+        prefs.getString('token'),
+        useHistory: useHistory,
+        isMainChat: effectiveMainChat,
+      );
     }
 
-    String buffer = '';
-    await for (final chunk in responseStream) {
-      buffer += chunk;
-      yield chunk;
-    }
+    final buffer = StringBuffer();
+    try {
+      await for (final chunk in responseStream) {
+        buffer.write(chunk);
+        yield chunk;
+      }
 
-    if (useHistory) {
-      addToHistory('assistant', buffer);
+      final fullReply = buffer.toString();
+      if (useHistory && fullReply.trim().isNotEmpty) {
+        addToHistory('assistant', fullReply);
+      } else if (useHistory && fullReply.trim().isEmpty) {
+        if (_conversationHistory.isNotEmpty &&
+            _conversationHistory.last['role'] == 'user') {
+          _conversationHistory.removeLast();
+        }
+      }
+    } catch (e) {
+      // Remove the dangling user message on failure so retries don't duplicate it
+      if (useHistory &&
+          _conversationHistory.isNotEmpty &&
+          _conversationHistory.last['role'] == 'user') {
+        _conversationHistory.removeLast();
+      }
+      rethrow;
     }
   }
 
   Stream<String> _streamGeminiResponse(
-      String userMessage, String apiKey, String modelName,
-      {bool useHistory = true, bool isMainChat = true}) async* {
+    String userMessage,
+    String apiKey,
+    String modelName, {
+    bool useHistory = true,
+    bool isMainChat = true,
+  }) async* {
     try {
+      final systemPrompt = await buildSystemPrompt(
+        userMessage,
+        useFullMemory: isMainChat,
+      );
       final model = GenerativeModel(
         model: modelName,
         apiKey: apiKey,
-        systemInstruction: Content.text(await buildSystemPrompt(userMessage, useFullMemory: isMainChat)),
+        systemInstruction: Content.text(systemPrompt),
       );
 
       Stream<GenerateContentResponse> response;
 
       if (useHistory) {
-        // Convert existing history to Gemini Content objects
-        // NOTE: We do NOT add the current userMessage here because startChat expects previous history
-        // and sendMesssage/sendMessageStream takes the new message.
-        // However, we just added the user message to _conversationHistory in streamResponse wrapper.
-        // So we need to exclude the LAST message (which is the current one) from the history passed to startChat.
+        final previousMessages = _conversationHistory.length > 1
+            ? _getWindowedHistory(
+                _conversationHistory.sublist(
+                    0, _conversationHistory.length - 1),
+              )
+            : const <Map<String, String>>[];
 
-        final geminiHistory = _conversationHistory
-            .take(
-                _conversationHistory.length - 1) // Exclude current user message
+        final geminiHistory = previousMessages
             .where((msg) =>
-                msg['content'] != null &&
-                msg['content']!.trim().isNotEmpty) // Filter empty messages
+                msg['content'] != null && msg['content']!.trim().isNotEmpty)
             .map((msg) {
           if (msg['role'] == 'user') {
             return Content.text(msg['content']!);
@@ -439,30 +680,36 @@ class ChatService {
         final chat = model.startChat(history: geminiHistory);
         response = chat.sendMessageStream(Content.text(userMessage));
       } else {
-        // One-shot request without history
         response = model.generateContentStream([Content.text(userMessage)]);
       }
 
       await for (final chunk in response) {
         final text = chunk.text ?? '';
-        yield text;
+        if (text.isNotEmpty) {
+          yield text;
+        }
       }
     } catch (e, stack) {
       debugPrint('🔥 Gemini Error: $e\n$stack');
       final errorMessage = e.toString().toLowerCase();
-      if (errorMessage.contains('high demand') || errorMessage.contains('503')) {
-         yield 'The AI model is currently experiencing high demand. Please try again in a moment.';
+      if (errorMessage.contains('high demand') ||
+          errorMessage.contains('503')) {
+        yield 'The AI model is currently experiencing high demand. Please try again in a moment.';
       } else {
-         yield 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
+        yield 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
       }
     }
   }
 
-  Stream<String> _streamBackendResponse(String userMessage, String? token,
-      {bool useHistory = true, bool isMainChat = true}) async* {
-    // Note: The backend expects the current message to be IN the history list if using history
+  Stream<String> _streamBackendResponse(
+    String userMessage,
+    String? token, {
+    bool useHistory = true,
+    bool isMainChat = true,
+  }) async* {
+    final windowedHistory = _getWindowedHistory(_conversationHistory);
     final messagesToSend = useHistory
-        ? await _buildMessagePayload(_conversationHistory, userMessage, isMainChat)
+        ? await _buildMessagePayload(windowedHistory, userMessage, isMainChat)
         : await _buildMessagePayload([
             {'role': 'user', 'content': userMessage}
           ], userMessage, false);
@@ -477,25 +724,32 @@ class ChatService {
       })
       ..body = jsonEncode({'messages': messagesToSend});
 
-    http.Client client = http.Client();
     http.StreamedResponse response;
 
     try {
-      response = await client.send(request);
+      response = await _sharedHttpClient.send(request);
     } catch (e, stack) {
       debugPrint('🔥 Error: $e\n$stack');
-      // network error → fall back to non-stream endpoint
-      yield* _fallbackResponse(userMessage, useHistory: useHistory, isMainChat: isMainChat);
+      yield* _fallbackResponse(
+        userMessage,
+        useHistory: useHistory,
+        isMainChat: isMainChat,
+      );
       return;
     }
 
     if (response.statusCode != 200) {
-      yield* _fallbackResponse(userMessage, useHistory: useHistory, isMainChat: isMainChat);
+      yield* _fallbackResponse(
+        userMessage,
+        useHistory: useHistory,
+        isMainChat: isMainChat,
+      );
       return;
     }
 
-    final lines =
-        response.stream.transform(utf8.decoder).transform(const LineSplitter());
+    final lines = response.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
 
     await for (final line in lines) {
       if (!line.startsWith('data: ')) continue;
@@ -505,28 +759,28 @@ class ChatService {
     }
   }
 
-  Stream<String> _fallbackResponse(String userMessage,
-      {bool useHistory = true, bool isMainChat = true}) async* {
-    // Since streamResponse wrapper adds to history, but fallback might use getResponse which ALSO adds to history...
-    // We need to be careful. getResponse is designed to be standalone.
-    // However, getResponse logic below uses _conversationHistory.
-    // Let's reuse getResponse but we need to handle the double-add issue if getResponse adds to history.
-
-    // Actually, let's keep it simple: getResponse returns the string.
-    // getResponse uses _conversationHistory.
-
-    // If called from streamResponse:
-    // 1. User msg already in _conversationHistory.
-    // 2. getResponse (if we modify it) will see it.
-
-    final reply = await getResponse(userMessage,
-        useHistory: useHistory, alreadyAddedToHistory: true, isMainChat: isMainChat);
+  Stream<String> _fallbackResponse(
+    String userMessage, {
+    bool useHistory = true,
+    bool isMainChat = true,
+  }) async* {
+    final reply = await getResponse(
+      userMessage,
+      useHistory: useHistory,
+      alreadyAddedToHistory: true,
+      isMainChat: isMainChat,
+    );
     yield reply;
   }
 
   /// Gets a response from the AI.
-  Future<String> getResponse(String userMessage,
-      {bool useHistory = true, bool alreadyAddedToHistory = false, bool isMainChat = true}) async {
+  Future<String> getResponse(
+    String userMessage, {
+    bool useHistory = true,
+    bool alreadyAddedToHistory = false,
+    bool isMainChat = true,
+  }) async {
+    final effectiveMainChat = isMainChat && !isTemporary;
     final prefs = await SharedPreferences.getInstance();
     final geminiApiKey = prefs.getString('geminiApiKey');
     String geminiModel = prefs.getString('geminiModel') ?? 'gemini-3.8-flash';
@@ -534,27 +788,34 @@ class ChatService {
       geminiModel = 'gemini-3.8-flash';
     }
 
-    // Update history if not already done (e.g. if called directly, not from streamResponse)
     if (useHistory && !alreadyAddedToHistory) {
       addToHistory('user', userMessage);
     }
 
     String reply;
 
-    // Use Gemini directly if API key is set
     if (geminiApiKey != null && geminiApiKey.isNotEmpty) {
-      reply = await _getGeminiResponse(userMessage, geminiApiKey, geminiModel,
-          useHistory: useHistory, isMainChat: isMainChat);
+      reply = await _getGeminiResponse(
+        userMessage,
+        geminiApiKey,
+        geminiModel,
+        useHistory: useHistory,
+        isMainChat: effectiveMainChat,
+      );
     } else {
-      // Backend
       final token = prefs.getString('token');
+      final windowedHistory = _getWindowedHistory(_conversationHistory);
       final messagesToSend = useHistory
-          ? await _buildMessagePayload(_conversationHistory, userMessage, isMainChat)
+          ? await _buildMessagePayload(
+              windowedHistory,
+              userMessage,
+              effectiveMainChat,
+            )
           : await _buildMessagePayload([
               {'role': 'user', 'content': userMessage}
             ], userMessage, false);
 
-      final response = await http.post(
+      final response = await _sharedHttpClient.post(
         Uri.parse('$_apiBase/chat'),
         headers: {
           'Content-Type': 'application/json',
@@ -571,7 +832,9 @@ class ChatService {
       reply = data['response'] as String;
     }
 
-    reply = reply.replaceFirst(RegExp(r'^Bible Companion:?\s*'), '').replaceFirst(RegExp(r'^Archie:?\s*'), '');
+    reply = reply
+        .replaceFirst(RegExp(r'^Bible Companion:?\s*'), '')
+        .replaceFirst(RegExp(r'^Archie:?\s*'), '');
 
     if (useHistory && !alreadyAddedToHistory) {
       addToHistory('assistant', reply);
@@ -581,19 +844,32 @@ class ChatService {
   }
 
   Future<String> _getGeminiResponse(
-      String userMessage, String apiKey, String modelName,
-      {bool useHistory = true, bool isMainChat = true}) async {
+    String userMessage,
+    String apiKey,
+    String modelName, {
+    bool useHistory = true,
+    bool isMainChat = true,
+  }) async {
     try {
       final model = GenerativeModel(
         model: modelName,
         apiKey: apiKey,
-        systemInstruction: Content.text(await buildSystemPrompt(userMessage, useFullMemory: isMainChat)),
+        systemInstruction: Content.text(
+          await buildSystemPrompt(userMessage, useFullMemory: isMainChat),
+        ),
       );
 
       if (useHistory) {
-        // Same logic as stream: exclude current user message from history sent to startChat
-        final geminiHistory = _conversationHistory
-            .take(_conversationHistory.length - 1)
+        final previousMessages = _conversationHistory.length > 1
+            ? _getWindowedHistory(
+                _conversationHistory.sublist(
+                    0, _conversationHistory.length - 1),
+              )
+            : const <Map<String, String>>[];
+
+        final geminiHistory = previousMessages
+            .where((msg) =>
+                msg['content'] != null && msg['content']!.trim().isNotEmpty)
             .map((msg) {
           if (msg['role'] == 'user') {
             return Content.text(msg['content']!);
@@ -606,7 +882,6 @@ class ChatService {
         final response = await chat.sendMessage(Content.text(userMessage));
         return response.text ?? '';
       } else {
-        // One-shot
         final response =
             await model.generateContent([Content.text(userMessage)]);
         return response.text ?? '';
@@ -614,85 +889,114 @@ class ChatService {
     } catch (e, stack) {
       debugPrint('🔥 Gemini Error: $e\n$stack');
       final errorMessage = e.toString().toLowerCase();
-      if (errorMessage.contains('high demand') || errorMessage.contains('503')) {
-         return 'The AI model is currently experiencing high demand. Please try again in a moment.';
+      if (errorMessage.contains('high demand') ||
+          errorMessage.contains('503')) {
+        return 'The AI model is currently experiencing high demand. Please try again in a moment.';
       } else {
-         return 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
+        return 'Sorry, I encountered an error connecting to Gemini. Please check your API key and try again.';
       }
     }
   }
 
   Future<List<Map<String, String>>> _buildMessagePayload(
-      List<Map<String, String>> history, String? userMessage, bool isMainChat) async {
+    List<Map<String, String>> history,
+    String? userMessage,
+    bool isMainChat,
+  ) async {
     return [
-      {'role': 'system', 'content': await buildSystemPrompt(userMessage, useFullMemory: isMainChat)},
-      ...history
+      {
+        'role': 'system',
+        'content': await buildSystemPrompt(
+          userMessage,
+          useFullMemory: isMainChat,
+        ),
+      },
+      ...history,
     ];
   }
 
-  Future<void> _generateSummaryAndEmbedding(SavedChat chat) async {
+  /// Generates a concise chat summary AND updates persistent cross-chat user
+  /// memory notes in the background without blocking UI or requiring embeddings.
+  Future<void> _generateSummaryAndMemoryInBackground(SavedChat chat) async {
     if (chat.messages.length < 2) return;
+    if (_summariesInFlight.contains(chat.id)) return;
+    _summariesInFlight.add(chat.id);
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final geminiApiKey = prefs.getString('geminiApiKey');
       if (geminiApiKey == null || geminiApiKey.isEmpty) return;
-      
+
       String geminiModel = prefs.getString('geminiModel') ?? 'gemini-3.8-flash';
+      if (geminiModel.contains('3.1') || geminiModel.contains('1.5')) {
+        geminiModel = 'gemini-3.8-flash';
+      }
 
       final model = GenerativeModel(
         model: geminiModel,
         apiKey: geminiApiKey,
       );
-      final chatText = chat.messages.map((m) => "${m.role}: ${m.content}").join('\n');
-      final prompt = "Provide a concise summary of the following chat conversation capturing the main topics, user preferences, and context. Keep it under 50 words:\n$chatText";
+
+      final recentMessages = chat.messages.length > 12
+          ? chat.messages.sublist(chat.messages.length - 12)
+          : chat.messages;
+      final chatText =
+          recentMessages.map((m) => "${m.role}: ${m.content}").join('\n');
+      final existingNotes =
+          (_cachedMemoryNotes ?? prefs.getString(_memoryNotesKey) ?? '').trim();
+
+      final prompt = '''
+Analyze the following Bible app conversation and return a JSON object with two fields:
+1. "summary": A concise summary (under 60 words) of this specific chat's topics, Bible passages discussed, and key takeaways.
+2. "memory_notes": Updated bullet points (max 150 words total) of lasting facts about the user across chats (e.g., Bible books/topics they are studying, personal context or ministry role they shared, recurring theological questions, prayer requests, or preferences). Merge new insights with the existing notes below and keep only useful lasting context.
+
+Existing memory notes:
+${existingNotes.isEmpty ? "(none)" : existingNotes}
+
+Conversation:
+$chatText
+
+Respond ONLY with valid JSON: {"summary": "...", "memory_notes": "..."}
+''';
+
       final response = await model.generateContent([Content.text(prompt)]);
-      final summary = response.text ?? '';
-      
-      final embedding = await _getEmbedding(summary, geminiApiKey);
-      if (embedding != null && summary.isNotEmpty) {
-        final updatedChat = chat.copyWith(summary: summary, embedding: embedding);
+      final rawText = (response.text ?? '').trim();
+      if (rawText.isEmpty) return;
+
+      String? summary;
+      String? updatedNotes;
+
+      try {
+        final jsonStart = rawText.indexOf('{');
+        final jsonEnd = rawText.lastIndexOf('}');
+        if (jsonStart != -1 && jsonEnd > jsonStart) {
+          final parsed = jsonDecode(rawText.substring(jsonStart, jsonEnd + 1))
+              as Map<String, dynamic>;
+          summary = parsed['summary']?.toString().trim();
+          updatedNotes = parsed['memory_notes']?.toString().trim();
+        }
+      } catch (_) {
+        // Fallback if model returned plain text instead of JSON
+        summary = rawText.length > 300 ? rawText.substring(0, 300) : rawText;
+      }
+
+      if (updatedNotes != null && updatedNotes.isNotEmpty) {
+        _cachedMemoryNotes = updatedNotes;
+        await prefs.setString(_memoryNotesKey, updatedNotes);
+      }
+
+      if (summary != null && summary.isNotEmpty) {
+        // Re-fetch latest version of this chat before saving summary so we don't overwrite newer messages
+        final latestChats = await getSavedChats();
+        final idx = latestChats.indexWhere((c) => c.id == chat.id);
+        final targetChat = idx != -1 ? latestChats[idx] : chat;
+        final updatedChat = targetChat.copyWith(summary: summary);
         await saveChat(updatedChat, skipSummary: true);
       }
     } catch (e) {
-      debugPrint('Error generating summary/embedding: $e');
+      debugPrint('Error generating background chat summary/memory: $e');
+    } finally {
+      _summariesInFlight.remove(chat.id);
     }
-  }
-
-  Future<List<double>?> _getEmbedding(String text, String apiKey) async {
-    try {
-      final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=$apiKey');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          "model": "models/text-embedding-004",
-          "content": {
-            "parts": [{"text": text}]
-          }
-        }),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final embeddingList = data['embedding']['values'] as List;
-        return embeddingList.map((e) => (e as num).toDouble()).toList();
-      }
-    } catch (e) {
-      debugPrint('Embedding error: $e');
-    }
-    return null;
-  }
-  
-  double _cosineSimilarity(List<double> a, List<double> b) {
-    if (a.length != b.length) return 0.0;
-    double dotProduct = 0.0;
-    double normA = 0.0;
-    double normB = 0.0;
-    for (int i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    if (normA == 0 || normB == 0) return 0.0;
-    return dotProduct / (math.sqrt(normA) * math.sqrt(normB));
   }
 }

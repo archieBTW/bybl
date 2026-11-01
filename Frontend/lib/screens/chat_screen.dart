@@ -68,20 +68,18 @@ class ChatScreenState extends State<ChatScreen> {
 
   void _scrollToBottom({bool isImmediate = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Small delay to allow layout to settle, especially for Markdown
       if (isImmediate) {
-         // for initial load, wait a bit longer to ensure content is rendered
-         await Future.delayed(const Duration(milliseconds: 100));
+        await Future.delayed(const Duration(milliseconds: 80));
       }
-      
+
       if (_scrollController.hasClients) {
         final position = _scrollController.position.maxScrollExtent;
-        if (isImmediate) {
+        if (isImmediate || _isStreaming) {
           _scrollController.jumpTo(position);
         } else {
           _scrollController.animateTo(
             position,
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 220),
             curve: Curves.easeOut,
           );
         }
@@ -101,15 +99,18 @@ class ChatScreenState extends State<ChatScreen> {
       _isStreaming = true;
     });
 
-    // Save immediately with the user message
-    await _chatService.saveCurrentChat(_messages);
+    // Persist the user message asynchronously without blocking stream startup or triggering summary generation yet
+    _chatService.saveCurrentChat(List<String>.from(_messages), skipSummary: true);
 
     bool success = await _tryStreamResponse(originalMessage);
 
     if (!success) {
+      if (!mounted) return;
       setState(() {
         _isStreaming = false;
-        _messages.removeLast(); // Remove the failed user message
+        if (_messages.isNotEmpty && _messages.last.startsWith('**You**:')) {
+          _messages.removeLast(); // Remove the failed user message
+        }
       });
 
       _controller.text = originalMessage;
@@ -121,48 +122,52 @@ class ChatScreenState extends State<ChatScreen> {
         ),
       );
     } else {
-      // Save the chat with the assistant response
-      await _chatService.saveCurrentChat(_messages);
+      // Save the chat with the assistant response and trigger background memory/summary update
+      await _chatService.saveCurrentChat(List<String>.from(_messages));
     }
   }
 
   Future<bool> _tryStreamResponse(String message) async {
-    try {
+    Future<bool> runStream() async {
       final stream = _chatService.streamResponse(message);
+      final buffer = StringBuffer();
+      DateTime lastUpdate = DateTime.fromMillisecondsSinceEpoch(0);
 
       await for (final chunk in stream) {
-        setState(() {
-          _streamingReply += chunk;
-        });
-        _scrollToBottom();
+        buffer.write(chunk);
+        final now = DateTime.now();
+        // Throttle UI rebuilds during token streaming (~30fps) for smooth Markdown rendering
+        if (now.difference(lastUpdate).inMilliseconds >= 32) {
+          lastUpdate = now;
+          if (mounted) {
+            setState(() {
+              _streamingReply = buffer.toString();
+            });
+            _scrollToBottom();
+          }
+        }
       }
 
+      final fullReply = buffer.toString();
+      if (!mounted) return false;
       setState(() {
-        _messages.add('**Bible Companion**: $_streamingReply');
+        _messages.add('**Bible Companion**: $fullReply');
         _streamingReply = '';
         _isStreaming = false;
       });
-
+      _scrollToBottom();
       return true;
+    }
+
+    try {
+      return await runStream();
     } catch (e) {
       // Retry once
       try {
-        final retryStream = _chatService.streamResponse(message);
-
-        await for (final chunk in retryStream) {
-          setState(() {
-            _streamingReply += chunk;
-          });
-          _scrollToBottom();
+        if (mounted) {
+          setState(() => _streamingReply = '');
         }
-
-        setState(() {
-          _messages.add('**Bible Companion**: $_streamingReply');
-          _streamingReply = '';
-          _isStreaming = false;
-        });
-
-        return true;
+        return await runStream();
       } catch (e2) {
         return false;
       }

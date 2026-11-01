@@ -36,10 +36,26 @@ class VerseProvider with ChangeNotifier {
     hasMoreSavedVerses = false;
   }
 
-  Future<void> saveVerse(String verseId, String text,
-      {String note = ''}) async {
-    // Check if already saved
-    if (savedVerses.any((verse) => verse.verseId == verseId)) {
+  Future<void> saveVerse(
+    String verseId,
+    String text, {
+    String note = '',
+    int? colorValue,
+  }) async {
+    final existingIdx =
+        savedVerses.indexWhere((verse) => verse.verseId == verseId);
+    if (existingIdx != -1) {
+      if (colorValue != null &&
+          savedVerses[existingIdx].colorValue != colorValue) {
+        final updated = await LocalStorageService.saveHighlight(
+          verseId: verseId,
+          content: text,
+          note: note.isNotEmpty ? note : savedVerses[existingIdx].note,
+          colorValue: colorValue,
+        );
+        savedVerses[existingIdx] = updated;
+        notifyListeners();
+      }
       return;
     }
 
@@ -47,6 +63,7 @@ class VerseProvider with ChangeNotifier {
       verseId: verseId,
       content: text,
       note: note.isNotEmpty ? note : null,
+      colorValue: colorValue,
     );
 
     savedVerses.insert(0, highlight);
@@ -55,6 +72,15 @@ class VerseProvider with ChangeNotifier {
 
   bool isVerseSaved(String verseId) {
     return savedVerses.any((verse) => verse.verseId == verseId);
+  }
+
+  int? getVerseColorValue(String verseId) {
+    for (final verse in savedVerses) {
+      if (verse.verseId == verseId) {
+        return verse.colorValue;
+      }
+    }
+    return null;
   }
 
   String? getSavedVerseUserVerseID(String verseId) {

@@ -9,15 +9,69 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+type bibleCacheEntry struct {
+	data      []byte
+	expiresAt time.Time
+}
+
+var (
+	bibleCacheMu   sync.RWMutex
+	bibleCacheData = make(map[string]bibleCacheEntry)
+	bibleCacheKeys []string
+)
+
+const (
+	maxBibleCacheEntries = 2000
+	bibleCacheTTL        = 24 * time.Hour
+)
+
+func getBibleCache(key string) ([]byte, bool) {
+	bibleCacheMu.RLock()
+	entry, ok := bibleCacheData[key]
+	bibleCacheMu.RUnlock()
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return entry.data, true
+}
+
+func setBibleCache(key string, data []byte) {
+	bibleCacheMu.Lock()
+	defer bibleCacheMu.Unlock()
+
+	if _, exists := bibleCacheData[key]; !exists {
+		if len(bibleCacheKeys) >= maxBibleCacheEntries {
+			evictKey := bibleCacheKeys[0]
+			bibleCacheKeys = bibleCacheKeys[1:]
+			delete(bibleCacheData, evictKey)
+		}
+		bibleCacheKeys = append(bibleCacheKeys, key)
+	}
+
+	bibleCacheData[key] = bibleCacheEntry{
+		data:      data,
+		expiresAt: time.Now().Add(bibleCacheTTL),
+	}
+}
 
 func GetBibleTranslations(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if apiKey == "" {
 			log.Println("Missing BIBLE_KEY")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Missing BIBLE_KEY"})
+			return
+		}
+
+		cacheKey := "translations"
+		if cached, ok := getBibleCache(cacheKey); ok {
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", cached)
 			return
 		}
 
@@ -57,13 +111,22 @@ func GetBibleTranslations(apiKey string) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, result)
+		setBibleCache(cacheKey, body)
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 	}
 }
 
 func GetBibleBooks(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		bibleId := c.Param("bibleId")
+		cacheKey := fmt.Sprintf("books:%s", bibleId)
+
+		if cached, ok := getBibleCache(cacheKey); ok {
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", cached)
+			return
+		}
 
 		url := fmt.Sprintf("https://rest.api.bible/v1/bibles/%s/books", bibleId)
 		req, _ := http.NewRequest("GET", url, nil)
@@ -78,9 +141,12 @@ func GetBibleBooks(apiKey string) gin.HandlerFunc {
 
 		body, _ := io.ReadAll(resp.Body)
 		var result map[string]interface{}
-		json.Unmarshal(body, &result)
+		if err := json.Unmarshal(body, &result); err == nil {
+			setBibleCache(cacheKey, body)
+		}
 
-		c.JSON(http.StatusOK, result)
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 	}
 }
 
@@ -88,6 +154,13 @@ func GetBibleChapters(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		bibleId := c.Param("bibleId")
 		bookId := c.Param("bookId")
+		cacheKey := fmt.Sprintf("chapters:%s:%s", bibleId, bookId)
+
+		if cached, ok := getBibleCache(cacheKey); ok {
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", cached)
+			return
+		}
 
 		url := fmt.Sprintf("https://rest.api.bible/v1/bibles/%s/books/%s/chapters", bibleId, bookId)
 		req, _ := http.NewRequest("GET", url, nil)
@@ -102,18 +175,29 @@ func GetBibleChapters(apiKey string) gin.HandlerFunc {
 
 		body, _ := io.ReadAll(resp.Body)
 		var result map[string]interface{}
-		json.Unmarshal(body, &result)
+		if err := json.Unmarshal(body, &result); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse chapters"})
+			return
+		}
 
 		// Filter out "intro" chapters
-		data := result["data"].([]interface{})
-		filtered := []interface{}{}
-		for _, ch := range data {
-			chMap := ch.(map[string]interface{})
-			if chMap["number"] != "intro" {
-				filtered = append(filtered, chMap)
+		if data, ok := result["data"].([]interface{}); ok {
+			filtered := []interface{}{}
+			for _, ch := range data {
+				if chMap, ok := ch.(map[string]interface{}); ok && chMap["number"] != "intro" {
+					filtered = append(filtered, chMap)
+				}
 			}
+			result["data"] = filtered
 		}
-		result["data"] = filtered
+
+		encoded, err := json.Marshal(result)
+		if err == nil {
+			setBibleCache(cacheKey, encoded)
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", encoded)
+			return
+		}
 
 		c.JSON(http.StatusOK, result)
 	}
@@ -139,6 +223,13 @@ func GetBiblePassage(apiKey string, esvKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		translationId := c.Param("translationId")
 		reference := c.Query("q")
+		cacheKey := fmt.Sprintf("passage:%s:%s", translationId, reference)
+
+		if cached, ok := getBibleCache(cacheKey); ok {
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", cached)
+			return
+		}
 
 		if translationId == "ESV" {
 			esvRef := normaliseESV(reference)
@@ -203,7 +294,12 @@ func GetBiblePassage(apiKey string, esvKey string) gin.HandlerFunc {
 				{"name": "para", "items": verses},
 			}
 
-			c.JSON(http.StatusOK, gin.H{"data": map[string]interface{}{"content": structured}})
+			payload := gin.H{"data": map[string]interface{}{"content": structured}}
+			if encoded, err := json.Marshal(payload); err == nil {
+				setBibleCache(cacheKey, encoded)
+			}
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.JSON(http.StatusOK, payload)
 			return
 		}
 
@@ -227,7 +323,8 @@ func GetBiblePassage(apiKey string, esvKey string) gin.HandlerFunc {
 			return
 		}
 
-		// Just forward it exactly as-is
-		c.JSON(http.StatusOK, result)
+		setBibleCache(cacheKey, body)
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 	}
 }
