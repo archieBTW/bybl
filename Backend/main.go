@@ -266,7 +266,8 @@ func main() {
 			log.Fatalf("failed to mount gofyrAdmin on admin port: %v", err)
 		}
 
-		// Also redirect /admin on the API port to inform client
+		// Also redirect /admin on the API port to inform client and serve admin uploads on the API port
+		apiRouter.Static(adminCfg.BasePath+"/uploads", "./uploads")
 		apiRouter.GET("/admin", func(c *gin.Context) {
 			c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("http://%s:%s%s", c.Request.Host, adminPort, adminCfg.BasePath))
 		})

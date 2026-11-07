@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:TheWord/models/bible_map_data.dart';
 import 'package:TheWord/services/local_storage_service.dart';
 
 class CachedChapterContent {
@@ -47,6 +48,7 @@ class BibleProvider with ChangeNotifier {
   static const String _chaptersCachePrefix = 'cache_bible_chapters_v1_';
   static const String _passageCachePrefix = 'cache_bible_passage_v2_';
   static const String _passageCacheIndexKey = 'cache_bible_passage_index_v2';
+  static const String _mapDataCacheKey = 'cache_bible_map_data_v1';
 
   static const int _maxMemoryPassages = 500;
   static const int _maxPersistentPassages = 120;
@@ -140,8 +142,53 @@ class BibleProvider with ChangeNotifier {
           } catch (_) {}
         }
       }
+      // Hydrate cached map data if available
+      final rawMapData = prefs.getString(_mapDataCacheKey);
+      if (rawMapData != null && rawMapData.isNotEmpty) {
+        try {
+          final decoded = json.decode(rawMapData);
+          if (decoded is List && decoded.isNotEmpty) {
+            BibleMapData.updatePathsFromJson(decoded);
+            notifyListeners();
+          }
+        } catch (_) {}
+      }
+
+      // Refresh map data from backend (gofyrAdmin) in background
+      unawaited(fetchMapData(forceRefresh: true));
     } catch (e) {
       debugPrint('Cache hydration error: $e');
+    }
+  }
+
+  Future<void> fetchMapData({bool forceRefresh = false}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!forceRefresh) {
+        final cached = prefs.getString(_mapDataCacheKey);
+        if (cached != null && cached.isNotEmpty) {
+          final decoded = json.decode(cached);
+          if (decoded is List && decoded.isNotEmpty) {
+            BibleMapData.updatePathsFromJson(decoded);
+            notifyListeners();
+            return;
+          }
+        }
+      }
+
+      final response = await http
+          .get(Uri.parse('$_baseUrl/map/data'))
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is List && decoded.isNotEmpty) {
+          BibleMapData.updatePathsFromJson(decoded);
+          await prefs.setString(_mapDataCacheKey, response.body);
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('Map data sync skipped (using built-in paths): $e');
     }
   }
 
@@ -151,12 +198,35 @@ class BibleProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> markChapterAsRead(String chapterId) async {
-    if (!_readChapters.contains(chapterId)) {
-      await LocalStorageService.markChapterAsRead(chapterId);
-      _readChapters.add(chapterId);
-      notifyListeners();
+  Future<List<({BibleMapPath path, MapPOI poi})>> markChapterAsRead(
+      String chapterId) async {
+    if (_readChapters.contains(chapterId)) {
+      return const [];
     }
+
+    final newlyUnlocked = <({BibleMapPath path, MapPOI poi})>[];
+    final updatedRead = Set<String>.from(_readChapters)..add(chapterId);
+
+    for (final path in BibleMapData.paths) {
+      for (final poi in path.pois) {
+        if (poi.requiredChapterIds.isEmpty ||
+            !poi.requiredChapterIds.contains(chapterId)) {
+          continue;
+        }
+        final wasUnlocked =
+            poi.requiredChapterIds.every((c) => _readChapters.contains(c));
+        final isNowUnlocked =
+            poi.requiredChapterIds.every((c) => updatedRead.contains(c));
+        if (!wasUnlocked && isNowUnlocked) {
+          newlyUnlocked.add((path: path, poi: poi));
+        }
+      }
+    }
+
+    await LocalStorageService.markChapterAsRead(chapterId);
+    _readChapters.add(chapterId);
+    notifyListeners();
+    return newlyUnlocked;
   }
 
   Future<void> fetchTranslations({bool forceRefresh = false}) async {

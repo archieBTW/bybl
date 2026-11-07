@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:TheWord/screens/settings_screen.dart';
+import 'package:TheWord/screens/map_screen.dart';
+import 'package:TheWord/models/bible_map_data.dart';
 import 'package:TheWord/shared/widgets/highlight_text.dart';
 import 'package:TheWord/shared/widgets/api_key_setup_prompt.dart';
 import 'package:TheWord/services/local_storage_service.dart';
@@ -79,6 +81,9 @@ class ReaderScreenState extends State<ReaderScreen> {
       {};
   final Map<String, ScrollController> _scrollControllers = {};
   Timer? _postSwipeTimer;
+  ({BibleMapPath path, MapPOI poi})? _unlockedMapToast;
+  int _unlockedMapToastCount = 1;
+  Timer? _mapToastTimer;
 
   final FocusNode _keyboardFocusNode = FocusNode();
   double _trackpadScrollDeltaX = 0;
@@ -197,6 +202,7 @@ class ReaderScreenState extends State<ReaderScreen> {
     _keyboardFocusNode.dispose();
     _trackpadResetTimer?.cancel();
     _postSwipeTimer?.cancel();
+    _mapToastTimer?.cancel();
     _pageController.dispose();
     flutterTts.stop();
     for (final controller in _scrollControllers.values) {
@@ -1010,13 +1016,28 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  /// Auto-marks the current chapter as read silently with no button and no toast.
+  /// Auto-marks the current chapter as read and shows a tiny clickable pill if a map endpoint unlocks.
   void _markChapterAsRead() async {
     final bibleProvider = Provider.of<BibleProvider>(context, listen: false);
     if (bibleProvider.readChapters.contains(widget.chapterId)) {
       return;
     }
-    await bibleProvider.markChapterAsRead(widget.chapterId);
+    final newlyUnlocked =
+        await bibleProvider.markChapterAsRead(widget.chapterId);
+    if (!mounted || newlyUnlocked.isEmpty) return;
+
+    _mapToastTimer?.cancel();
+    setState(() {
+      _unlockedMapToast = newlyUnlocked.first;
+      _unlockedMapToastCount = newlyUnlocked.length;
+    });
+    _mapToastTimer = Timer(const Duration(milliseconds: 4500), () {
+      if (mounted) {
+        setState(() {
+          _unlockedMapToast = null;
+        });
+      }
+    });
   }
 
   Future<void> _toggleBookmark() async {
@@ -1418,6 +1439,86 @@ class ReaderScreenState extends State<ReaderScreen> {
                     ),
                 ],
               ),
+              if (_unlockedMapToast != null)
+                Positioned(
+                  bottom: 14,
+                  left: 16,
+                  right: 16,
+                  child: Center(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: () {
+                          final unlocked = _unlockedMapToast;
+                          if (unlocked == null) return;
+                          _mapToastTimer?.cancel();
+                          setState(() {
+                            _unlockedMapToast = null;
+                          });
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => MapScreen(
+                                initialPathId: unlocked.path.id,
+                                initialPoiId: unlocked.poi.id,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xEE22262E)
+                                : const Color(0xEE1F242D),
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.18),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.place_rounded,
+                                size: 15,
+                                color: Colors.amberAccent,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  _unlockedMapToastCount > 1
+                                      ? 'Map unlocked: ${_unlockedMapToast!.poi.title} (+${_unlockedMapToastCount - 1})'
+                                      : 'Map unlocked: ${_unlockedMapToast!.poi.title}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 16,
+                                color: Colors.white70,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (isSummaryLoading)
                 Container(
                   color: Colors.black54,

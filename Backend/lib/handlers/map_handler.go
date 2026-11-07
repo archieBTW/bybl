@@ -15,8 +15,10 @@ import (
 func GetMapData(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var paths []models.BibleMapPath
-		// Preload POIs
-		if err := db.Preload("POIs").Find(&paths).Error; err != nil {
+		// Preload POIs ordered along their path
+		if err := db.Preload("POIs", func(db *gorm.DB) *gorm.DB {
+			return db.Order("map_pois.path_point_index ASC, map_pois.id ASC")
+		}).Order("id ASC").Find(&paths).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch map data"})
 			return
 		}
@@ -60,6 +62,9 @@ func UpdatePOI(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Update fields
+		if input.Slug != "" {
+			poi.Slug = input.Slug
+		}
 		poi.Title = input.Title
 		poi.Description = input.Description
 		poi.Latitude = input.Latitude
