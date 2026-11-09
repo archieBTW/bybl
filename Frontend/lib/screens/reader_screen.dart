@@ -21,6 +21,22 @@ import 'package:flutter/services.dart';
 import '../main.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
+/// A MaterialPageRoute that completely disables swipe-to-go-back gestures
+/// so that horizontal drag gestures (like turning Bible chapters in PageView)
+/// are handled entirely by the reader without navigating away.
+class NoSwipeBackPageRoute<T> extends MaterialPageRoute<T> {
+  NoSwipeBackPageRoute({
+    required super.builder,
+    super.settings,
+    super.maintainState,
+    super.fullscreenDialog,
+    super.allowSnapshotting,
+  });
+
+  @override
+  bool get popGestureEnabled => false;
+}
+
 class ReaderScreen extends StatefulWidget {
   String chapterId;
   final String chapterName;
@@ -1148,10 +1164,8 @@ class ReaderScreenState extends State<ReaderScreen> {
     final isDark = settingsProvider.currentThemeMode == ThemeMode.dark;
     final fgColor = isDark ? Colors.white : Colors.black;
 
-    return WillPopScope(
-      onWillPop: () async => false,
-      child: Scaffold(
-        appBar: AppBar(
+    return Scaffold(
+      appBar: AppBar(
           automaticallyImplyLeading: false,
           leading: IconButton(
             iconSize: 22,
@@ -1597,8 +1611,7 @@ class ReaderScreenState extends State<ReaderScreen> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }
 

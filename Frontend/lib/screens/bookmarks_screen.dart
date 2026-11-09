@@ -266,7 +266,7 @@ class _BookmarksScreenState extends State<BookmarksScreen>
                                         bookmark.bookId);
                                     if (mounted) {
                                       await Navigator.of(context)
-                                          .push(MaterialPageRoute(
+                                          .push(NoSwipeBackPageRoute(
                                               builder: (_) => ReaderScreen(
                                                     bookId: bookmark.bookId,
                                                     chapterId:
@@ -633,7 +633,7 @@ class _BookmarksScreenState extends State<BookmarksScreen>
                                               if (mounted) {
                                                 await Navigator.of(context)
                                                     .push(
-                                                  MaterialPageRoute(
+                                                  NoSwipeBackPageRoute(
                                                     builder: (_) =>
                                                         ReaderScreen(
                                                       bookId: bookId,

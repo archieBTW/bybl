@@ -4,3 +4,10 @@ import 'dart:html' as html;
 void setBodyBackground(String hex) {
   html.document.body!.style.backgroundColor = hex;
 }
+
+void backgroundAppWeb() {
+  try {
+    html.window.close();
+  } catch (_) {}
+}
+

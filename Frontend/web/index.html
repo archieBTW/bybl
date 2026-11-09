@@ -35,9 +35,14 @@
   <meta name="theme-color" content="#000000">
 
   <style>
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
       background-color: black;
+      overscroll-behavior: none;
+      overscroll-behavior-x: none;
     }
 
     #splash-screen {
@@ -70,6 +75,20 @@
   <div id="splash-screen">
     <img src="icons/app_icon.png" id="splash-image" />
   </div>
+
+  <script>
+    // Prevent iOS Safari / PWA native edge-swipe back navigation gesture
+    // which unloads/slides the SPA out to a blank white screen.
+    window.addEventListener('touchstart', function (e) {
+      if (e.touches && e.touches.length === 1) {
+        var touchX = e.touches[0].clientX;
+        var edgeThreshold = 25;
+        if (touchX < edgeThreshold) {
+          e.preventDefault();
+        }
+      }
+    }, { passive: false });
+  </script>
 
   <script>
     const serviceWorkerVersion = null;

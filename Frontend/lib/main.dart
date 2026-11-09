@@ -3,6 +3,7 @@ import 'package:TheWord/providers/settings_provider.dart';
 import 'package:TheWord/providers/verse_provider.dart';
 import 'package:TheWord/screens/main_app.dart';
 import 'package:TheWord/services/tts_service.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -91,6 +92,15 @@ class ByblApp extends StatelessWidget {
               textColor: Colors.white,
               iconColor: Colors.white,
             ),
+            pageTransitionsTheme: const PageTransitionsTheme(
+              builders: {
+                TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.windows: ZoomPageTransitionsBuilder(),
+                TargetPlatform.linux: ZoomPageTransitionsBuilder(),
+              },
+            ),
           ),
           theme: ThemeData(
             fontFamily: 'NotoSans',
@@ -114,6 +124,15 @@ class ByblApp extends StatelessWidget {
             listTileTheme: const ListTileThemeData(
               textColor: Colors.black,
               iconColor: Colors.black,
+            ),
+            pageTransitionsTheme: const PageTransitionsTheme(
+              builders: {
+                TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+                TargetPlatform.windows: ZoomPageTransitionsBuilder(),
+                TargetPlatform.linux: ZoomPageTransitionsBuilder(),
+              },
             ),
           ),
         );

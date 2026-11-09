@@ -110,7 +110,7 @@ class BookListScreen extends StatelessWidget {
                                     onTap: () {
                                       Navigator.push(
                                         context,
-                                        MaterialPageRoute(
+                                        NoSwipeBackPageRoute(
                                           builder: (_) => ReaderScreen(
                                             bookName: bookName,
                                             bookId: bookId,

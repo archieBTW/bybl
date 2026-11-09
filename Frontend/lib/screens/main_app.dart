@@ -5,8 +5,11 @@ import 'package:TheWord/screens/bookmarks_screen.dart';
 import 'package:TheWord/screens/chat_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../shared/helpers/color_helper_stub.dart'
+    if (dart.library.html) '../shared/helpers/color_helper_web.dart';
 import 'book_list.dart';
 import 'settings_screen.dart';
 import '../shared/widgets/dynamic_search_bar.dart';
@@ -125,8 +128,20 @@ class _MainAppScreenState extends State<MainAppScreen> {
       );
     }
 
-    return WillPopScope(
-      onWillPop: () async => false,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+          Navigator.pop(context);
+          return;
+        }
+        if (!kIsWeb) {
+          SystemNavigator.pop();
+        } else {
+          backgroundAppWeb();
+        }
+      },
       child: Scaffold(
         key: _scaffoldKey,
         backgroundColor: isDark ? Colors.black : Colors.white,
