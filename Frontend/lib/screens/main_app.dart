@@ -232,8 +232,27 @@ class _MainAppScreenState extends State<MainAppScreen> {
             ),
           ],
         ),
-        // Bible content
-        body: const BookListScreen(),
+        // Bible content: 2-paned layout on desktop (70% book list, 30% chat), untouched on mobile
+        body: (MediaQuery.of(context).size.width >= 900)
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Expanded(
+                    flex: 70,
+                    child: BookListScreen(),
+                  ),
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: isDark ? Colors.grey[850] : Colors.grey[300],
+                  ),
+                  const Expanded(
+                    flex: 30,
+                    child: ChatScreen(isEmbedded: true),
+                  ),
+                ],
+              )
+            : const BookListScreen(),
       ),
     );
   }

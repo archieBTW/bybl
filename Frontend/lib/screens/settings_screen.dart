@@ -1,12 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:string_similarity/string_similarity.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -14,7 +11,8 @@ import '../providers/bible_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/local_storage_service.dart';
 import '../models/user_settings_enums.dart';
-import '../services/gemini_live_service.dart';
+import '../shared/helpers/file_helper_stub.dart'
+    if (dart.library.html) '../shared/helpers/file_helper_web.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -476,7 +474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Export your bookmarks and highlighted verses to a file that you can save or share.',
+                      'Export your bookmarks, saved verses, notes, reading history, chat history, preferences, and API key to a file that you can save or share.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Colors.grey,
                           ),
@@ -512,23 +510,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _exportData() async {
     try {
       final jsonData = await LocalStorageService.exportAllData();
-      
-      // Create a temporary file
-      final directory = await getTemporaryDirectory();
-      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.')[0];
-      final file = File('${directory.path}/bybl_backup_$timestamp.json');
-      await file.writeAsString(jsonData);
-      
-      // Share the file
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        subject: 'Bybl Backup',
-        text: 'My Bybl bookmarks and highlights backup',
-      );
-      
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .split('.')[0];
+      final fileName = 'bybl_backup_$timestamp.json';
+
+      await exportBackupFile(fileName, jsonData);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Backup file ready to share')),
+          const SnackBar(content: Text('Backup exported successfully!')),
         );
       }
     } catch (e) {
@@ -545,29 +537,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
+        withData: true,
       );
-      
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final jsonString = await file.readAsString();
-        
-        final counts = await LocalStorageService.importData(jsonString);
-        if (mounted) {
-          final settingsMsg = counts['settings'] == 1 ? ', settings' : '';
-          final chatsMsg = (counts['chats'] ?? 0) > 0 ? ', ${counts['chats']} chats' : '';
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Imported ${counts['bookmarks']} bookmarks, ${counts['highlights']} highlights$chatsMsg$settingsMsg. Restart app to apply.',
+
+      if (result != null && result.files.isNotEmpty) {
+        final pickedFile = result.files.single;
+        final jsonString = await readPickedFileString(pickedFile);
+
+        if (jsonString == null || jsonString.trim().isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Import failed: Empty or unreadable file'),
               ),
-            ),
-          );
+            );
+          }
+          return;
         }
+
+        final counts = await LocalStorageService.importData(jsonString);
+
+        if (!mounted) return;
+
+        // Capture providers and messenger before async reloading
+        final settingsProvider =
+            Provider.of<SettingsProvider>(context, listen: false);
+        final bibleProvider =
+            Provider.of<BibleProvider>(context, listen: false);
+        final messenger = ScaffoldMessenger.of(context);
+
+        await settingsProvider.loadSettings();
+
+        if (settingsProvider.currentTranslationId != null) {
+          await bibleProvider
+              .fetchBooks(settingsProvider.currentTranslationId!);
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _geminiApiKeyController.text =
+              settingsProvider.geminiApiKey ?? '';
+          _userNameController.text = settingsProvider.aiUserName ?? '';
+          _searchController.text =
+              settingsProvider.currentTranslationName ?? '';
+        });
+
+        final parts = <String>[];
+        if ((counts['bookmarks'] ?? 0) > 0) {
+          parts.add('${counts['bookmarks']} bookmarks');
+        }
+        if ((counts['highlights'] ?? 0) > 0) {
+          parts.add('${counts['highlights']} saved verses/notes');
+        }
+        if ((counts['chats'] ?? 0) > 0) {
+          parts.add('${counts['chats']} chats');
+        }
+        if ((counts['readChapters'] ?? 0) > 0) {
+          parts.add('${counts['readChapters']} read chapters');
+        }
+        if ((counts['preferences'] ?? 0) > 0) {
+          parts.add('preferences');
+        }
+        if ((counts['apiKey'] ?? 0) > 0) {
+          parts.add('API key');
+        }
+
+        final summaryMsg =
+            parts.isNotEmpty ? parts.join(', ') : 'all data';
+
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Successfully imported $summaryMsg!'),
+            backgroundColor: Colors.green[800],
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: Invalid file or format')),
+          SnackBar(
+            content: Text('Import failed: $e'),
+            backgroundColor: Colors.red[800],
+          ),
         );
       }
     }

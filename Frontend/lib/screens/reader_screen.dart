@@ -11,6 +11,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'chat_screen.dart';
 
 import '../providers/settings_provider.dart';
 import '../providers/bible_provider.dart';
@@ -66,6 +67,7 @@ class ReaderScreen extends StatefulWidget {
 
 class ReaderScreenState extends State<ReaderScreen> {
   late PageController _pageController;
+  bool _showCompanion = true;
 
   late String _bookId;
   late String _bookName;
@@ -414,10 +416,12 @@ class ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    _pageController.nextPage(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    if (_pageController.hasClients) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   /// Transitions to the next (+1) or previous (-1) book when turning past
@@ -552,6 +556,31 @@ class ReaderScreenState extends State<ReaderScreen> {
         _pageController.jumpToPage(index);
       }
     }
+  }
+
+  String _buildCurrentReadingContext() {
+    final buffer = StringBuffer(
+      'Book: $_bookName\n'
+      'Chapter: $chapterName\n'
+      'Translation: $_translationName\n\n',
+    );
+    final verses = _chapterContents[widget.chapterId];
+    if (verses != null && verses.isNotEmpty) {
+      buffer.writeln('Verses in this chapter:');
+      for (final v in verses) {
+        final text = (v['text'] ?? '').toString().trim();
+        if (text.isNotEmpty) {
+          final idParts = (v['id'] ?? '').toString().split('.');
+          final verseNum = idParts.isNotEmpty ? idParts.last : '';
+          buffer.writeln('$verseNum $text');
+        }
+      }
+    }
+    return buffer.toString();
+  }
+
+  String _buildCurrentPassageLabel() {
+    return '$_bookName $chapterName';
   }
 
   void _showChapterSelection() {
@@ -1163,456 +1192,599 @@ class ReaderScreenState extends State<ReaderScreen> {
     final settingsProvider = Provider.of<SettingsProvider>(context);
     final isDark = settingsProvider.currentThemeMode == ThemeMode.dark;
     final fgColor = isDark ? Colors.white : Colors.black;
+    final isDesktop = MediaQuery.of(context).size.width >= 900;
 
-    return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: IconButton(
-            iconSize: 22,
-            padding: const EdgeInsets.only(left: 8),
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
+    final appBar = AppBar(
+      automaticallyImplyLeading: false,
+      leading: IconButton(
+        iconSize: 22,
+        padding: const EdgeInsets.only(left: 8),
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () {
+          Navigator.of(context).pop();
+        },
+      ),
+      toolbarHeight: 44,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      iconTheme: IconThemeData(color: fgColor),
+      titleSpacing: 0,
+      title: Text(
+        _bookName,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 19,
+          fontWeight: FontWeight.w600,
+          color: fgColor,
+        ),
+      ),
+      actions: [
+        // Quick Translation Switcher pill
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6.0),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: _showTranslationSwitcher,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white10 : Colors.black.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isDark ? Colors.white24 : Colors.black26,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _shortTranslationLabel(_translationName),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: fgColor,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(Icons.arrow_drop_down, size: 16, color: fgColor),
+                ],
+              ),
+            ),
           ),
-          toolbarHeight: 44,
-          backgroundColor: theme.scaffoldBackgroundColor,
-          iconTheme: IconThemeData(color: fgColor),
-          titleSpacing: 0,
-          title: Text(
-            _bookName,
-            overflow: TextOverflow.ellipsis,
+        ),
+        // Typography (Aa) button
+        IconButton(
+          tooltip: 'Reading Appearance',
+          onPressed: _showTypographyControls,
+          icon: Text(
+            'Aa',
             style: TextStyle(
-              fontSize: 19,
-              fontWeight: FontWeight.w600,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              fontFamily: settingsProvider.readerUseSerif ? 'Georgia' : null,
               color: fgColor,
             ),
           ),
-          actions: [
-            // Quick Translation Switcher pill
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6.0),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: _showTranslationSwitcher,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : Colors.black.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isDark ? Colors.white24 : Colors.black26,
+        ),
+        // Audio TTS Play/Stop button
+        IconButton(
+          color: fgColor,
+          tooltip: isReading ? 'Stop Audio' : 'Read Aloud',
+          icon: Icon(isReading ? Icons.stop : Icons.play_arrow),
+          onPressed: () {
+            if (isReading) {
+              _pauseReading();
+            } else {
+              _startReading();
+            }
+          },
+        ),
+        // On desktop: Bible Companion Chat toggle button (collapsible 30% pane)
+        if (isDesktop)
+          IconButton(
+            tooltip:
+                _showCompanion ? 'Hide Bible Companion' : 'Show Bible Companion',
+            icon: Icon(
+              _showCompanion ? Icons.auto_awesome : Icons.auto_awesome_outlined,
+              color: _showCompanion
+                  ? (isDark ? Colors.amberAccent : theme.colorScheme.primary)
+                  : fgColor,
+            ),
+            onPressed: () {
+              setState(() {
+                _showCompanion = !_showCompanion;
+              });
+            },
+          ),
+      ],
+    );
+
+    // On mobile (< 900px), return untouched standard single-pane reader Scaffold
+    if (!isDesktop) {
+      return Scaffold(
+        appBar: appBar,
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: _buildReaderContent(
+          context,
+          theme,
+          settingsProvider,
+          isDark,
+          fgColor,
+        ),
+        bottomNavigationBar: _buildBottomBar(
+          context,
+          theme,
+          isDark,
+          fgColor,
+        ),
+      );
+    }
+
+    // On desktop (>= 900px): 2-paned layout with collapsible Bible Companion (70% reader, 30% companion)
+    return Scaffold(
+      appBar: appBar,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: _showCompanion ? 70 : 100,
+            child: Column(
+              children: [
+                Expanded(
+                  child: _buildReaderContent(
+                    context,
+                    theme,
+                    settingsProvider,
+                    isDark,
+                    fgColor,
+                  ),
+                ),
+                _buildBottomBar(
+                  context,
+                  theme,
+                  isDark,
+                  fgColor,
+                ),
+              ],
+            ),
+          ),
+          if (_showCompanion) ...[
+            VerticalDivider(
+              width: 1,
+              thickness: 1,
+              color: isDark ? Colors.grey[850] : Colors.grey[300],
+            ),
+            Expanded(
+              flex: 30,
+              child: ChatScreen(
+                isEmbedded: true,
+                readingContext: _buildCurrentReadingContext(),
+                readingPassageLabel: _buildCurrentPassageLabel(),
+                onCollapse: () {
+                  setState(() {
+                    _showCompanion = false;
+                  });
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReaderContent(
+    BuildContext context,
+    ThemeData theme,
+    SettingsProvider settingsProvider,
+    bool isDark,
+    Color fgColor,
+  ) {
+    return Focus(
+      focusNode: _keyboardFocusNode,
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            _changePage(-1);
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            _changePage(1);
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              Expanded(
+                child: ScrollConfiguration(
+                  behavior: const AppScrollBehavior(),
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (notification.depth == 0) {
+                        if (notification is OverscrollNotification) {
+                          _overscrollAccumulated += notification.overscroll;
+                          if (_overscrollAccumulated > 65 &&
+                              currentPageIndex >= _chapterIds.length - 1) {
+                            _overscrollAccumulated = 0;
+                            _transitionToAdjacentBook(1);
+                          } else if (_overscrollAccumulated < -65 &&
+                              currentPageIndex <= 0) {
+                            _overscrollAccumulated = 0;
+                            _transitionToAdjacentBook(-1);
+                          }
+                        } else if (notification is ScrollEndNotification) {
+                          _overscrollAccumulated = 0;
+                        }
+                      }
+                      return false;
+                    },
+                    child: PageView.builder(
+                      controller: _pageController,
+                      allowImplicitScrolling: true,
+                      physics: const PageScrollPhysics(
+                        parent: ClampingScrollPhysics(),
+                      ),
+                      itemCount: _chapterIds.length,
+                      onPageChanged: (index) {
+                        final newChapterId = _chapterIds[index].toString();
+                        final newChapterName = _chapterNames[index].toString();
+
+                        if (isReading) {
+                          flutterTts.stop();
+                        }
+
+                        final bibleProvider = Provider.of<BibleProvider>(
+                          context,
+                          listen: false,
+                        );
+                        if (!_chapterContents.containsKey(newChapterId) ||
+                            _chapterContents[newChapterId]!.isEmpty) {
+                          final memCached = bibleProvider.getCachedChapter(
+                            _translationId,
+                            newChapterId,
+                          );
+                          if (memCached != null &&
+                              memCached.verses.isNotEmpty) {
+                            _chapterContents[newChapterId] =
+                                memCached.verses;
+                            _chapterCopyrights[newChapterId] =
+                                memCached.copyright;
+                          }
+                        }
+
+                        final alreadyLoaded =
+                            _chapterContents.containsKey(newChapterId) &&
+                                _chapterContents[newChapterId]!.isNotEmpty;
+
+                        setState(() {
+                          currentPageIndex = index;
+                          widget.chapterId = newChapterId;
+                          chapterName = newChapterName;
+                          currentVerseIndex = isReading ? 0 : null;
+                          isLoading = !alreadyLoaded;
+                          pageChanging = false;
+                        });
+
+                        // Defer non-visual background work until after the swipe settle animation completes
+                        _postSwipeTimer?.cancel();
+                        _postSwipeTimer =
+                            Timer(const Duration(milliseconds: 260), () {
+                          if (!mounted) return;
+                          _refreshBookmarkState();
+                          if (alreadyLoaded) {
+                            _markChapterAsRead();
+                            _preloadAdjacentChapters(newChapterId);
+                            if (isReading) {
+                              _resumeReading();
+                            }
+                          } else {
+                            _fetchChapterContent(newChapterId).then((_) {
+                              if (!mounted) return;
+                              _preloadAdjacentChapters(newChapterId);
+                              if (isReading) {
+                                _resumeReading();
+                              }
+                            });
+                          }
+                        });
+                      },
+                      itemBuilder: (context, index) {
+                        final chapterId = _chapterIds[index].toString();
+                        final bibleProvider = Provider.of<BibleProvider>(
+                          context,
+                          listen: false,
+                        );
+                        final cached = bibleProvider.getCachedChapter(
+                          _translationId,
+                          chapterId,
+                        );
+                        final verses = _chapterContents[chapterId] ??
+                            cached?.verses ??
+                            [];
+                        final copyright = _chapterCopyrights[chapterId] ??
+                            cached?.copyright;
+                        final isCurrent = chapterId == widget.chapterId;
+                        if (verses.isEmpty) {
+                          return const Center(
+                              child: CircularProgressIndicator());
+                        }
+
+                        return RepaintBoundary(
+                          child: Listener(
+                            onPointerSignal: (pointerSignal) {
+                              if (pointerSignal is PointerScrollEvent) {
+                                if (pointerSignal.scrollDelta.dx.abs() >
+                                    pointerSignal.scrollDelta.dy.abs()) {
+                                  GestureBinding
+                                      .instance.pointerSignalResolver
+                                      .register(pointerSignal, (event) {
+                                    _handleTrackpadHorizontalScroll(
+                                        event as PointerScrollEvent);
+                                  });
+                                }
+                              }
+                            },
+                            child: SelectableTextHighlight(
+                              key: _getHighlightKey(chapterId),
+                              chapterId: chapterId,
+                              bookName: _bookName,
+                              translationId: _translationId,
+                              verses: verses,
+                              copyright: copyright,
+                              scrollController:
+                                  _getScrollController(chapterId),
+                              style: theme.textTheme.bodyMedium!.copyWith(
+                                fontSize: settingsProvider.readerFontSize,
+                                height: settingsProvider.readerLineHeight,
+                                fontFamily: settingsProvider.readerUseSerif
+                                    ? 'Georgia'
+                                    : null,
+                              ),
+                              currentVerseIndex:
+                                  (chapterId == widget.chapterId)
+                                      ? currentVerseIndex
+                                      : -1,
+                              targetVerseId:
+                                  (isCurrent && widget.targetVerseId != null)
+                                      ? widget.targetVerseId
+                                      : null,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
+                ),
+              ),
+              if (isReading)
+                Container(
+                  color: isDark ? const Color(0xFF1E1E1E) : Colors.grey[200],
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        _shortTranslationLabel(_translationName),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: fgColor,
-                        ),
+                      IconButton(
+                        icon: const Icon(Icons.pause),
+                        onPressed: _pauseReading,
                       ),
-                      const SizedBox(width: 2),
-                      Icon(Icons.arrow_drop_down, size: 16, color: fgColor),
+                      IconButton(
+                        icon: const Icon(Icons.skip_next),
+                        onPressed: _skipReading,
+                      ),
                     ],
                   ),
                 ),
-              ),
-            ),
-            // Typography (Aa) button
-            IconButton(
-              tooltip: 'Reading Appearance',
-              onPressed: _showTypographyControls,
-              icon: Text(
-                'Aa',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: settingsProvider.readerUseSerif ? 'Georgia' : null,
-                  color: fgColor,
-                ),
-              ),
-            ),
-            // Audio TTS Play/Stop button
-            IconButton(
-              color: fgColor,
-              tooltip: isReading ? 'Stop Audio' : 'Read Aloud',
-              icon: Icon(isReading ? Icons.stop : Icons.play_arrow),
-              onPressed: () {
-                if (isReading) {
-                  _pauseReading();
-                } else {
-                  _startReading();
-                }
-              },
-            ),
-          ],
-        ),
-        backgroundColor: theme.scaffoldBackgroundColor,
-        body: Focus(
-          focusNode: _keyboardFocusNode,
-          autofocus: true,
-          onKeyEvent: (node, event) {
-            if (event is KeyDownEvent) {
-              if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                _changePage(-1);
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                _changePage(1);
-                return KeyEventResult.handled;
-              }
-            }
-            return KeyEventResult.ignored;
-          },
-          child: Stack(
-            children: [
-              Column(
-                children: [
-                  Expanded(
-                    child: ScrollConfiguration(
-                      behavior: const AppScrollBehavior(),
-                      child: NotificationListener<ScrollNotification>(
-                        onNotification: (notification) {
-                          if (notification.depth == 0) {
-                            if (notification is OverscrollNotification) {
-                              _overscrollAccumulated += notification.overscroll;
-                              if (_overscrollAccumulated > 65 &&
-                                  currentPageIndex >= _chapterIds.length - 1) {
-                                _overscrollAccumulated = 0;
-                                _transitionToAdjacentBook(1);
-                              } else if (_overscrollAccumulated < -65 &&
-                                  currentPageIndex <= 0) {
-                                _overscrollAccumulated = 0;
-                                _transitionToAdjacentBook(-1);
-                              }
-                            } else if (notification is ScrollEndNotification) {
-                              _overscrollAccumulated = 0;
-                            }
-                          }
-                          return false;
-                        },
-                        child: PageView.builder(
-                          controller: _pageController,
-                          allowImplicitScrolling: true,
-                          physics: const PageScrollPhysics(
-                            parent: ClampingScrollPhysics(),
+            ],
+          ),
+          if (_unlockedMapToast != null)
+            Positioned(
+              bottom: 14,
+              left: 16,
+              right: 16,
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () {
+                      final unlocked = _unlockedMapToast;
+                      if (unlocked == null) return;
+                      _mapToastTimer?.cancel();
+                      setState(() {
+                        _unlockedMapToast = null;
+                      });
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => MapScreen(
+                            initialPathId: unlocked.path.id,
+                            initialPoiId: unlocked.poi.id,
                           ),
-                          itemCount: _chapterIds.length,
-                          onPageChanged: (index) {
-                            final newChapterId = _chapterIds[index].toString();
-                            final newChapterName =
-                                _chapterNames[index].toString();
-
-                            if (isReading) {
-                              flutterTts.stop();
-                            }
-
-                            final bibleProvider = Provider.of<BibleProvider>(
-                              context,
-                              listen: false,
-                            );
-                            if (!_chapterContents.containsKey(newChapterId) ||
-                                _chapterContents[newChapterId]!.isEmpty) {
-                              final memCached = bibleProvider.getCachedChapter(
-                                _translationId,
-                                newChapterId,
-                              );
-                              if (memCached != null &&
-                                  memCached.verses.isNotEmpty) {
-                                _chapterContents[newChapterId] =
-                                    memCached.verses;
-                                _chapterCopyrights[newChapterId] =
-                                    memCached.copyright;
-                              }
-                            }
-
-                            final alreadyLoaded =
-                                _chapterContents.containsKey(newChapterId) &&
-                                    _chapterContents[newChapterId]!.isNotEmpty;
-
-                            setState(() {
-                              currentPageIndex = index;
-                              widget.chapterId = newChapterId;
-                              chapterName = newChapterName;
-                              currentVerseIndex = isReading ? 0 : null;
-                              isLoading = !alreadyLoaded;
-                              pageChanging = false;
-                            });
-
-                            // Defer non-visual background work until after the swipe settle animation completes
-                            _postSwipeTimer?.cancel();
-                            _postSwipeTimer =
-                                Timer(const Duration(milliseconds: 260), () {
-                              if (!mounted) return;
-                              _refreshBookmarkState();
-                              if (alreadyLoaded) {
-                                _markChapterAsRead();
-                                _preloadAdjacentChapters(newChapterId);
-                                if (isReading) {
-                                  _resumeReading();
-                                }
-                              } else {
-                                _fetchChapterContent(newChapterId).then((_) {
-                                  if (!mounted) return;
-                                  _preloadAdjacentChapters(newChapterId);
-                                  if (isReading) {
-                                    _resumeReading();
-                                  }
-                                });
-                              }
-                            });
-                          },
-                          itemBuilder: (context, index) {
-                            final chapterId = _chapterIds[index].toString();
-                            final bibleProvider = Provider.of<BibleProvider>(
-                              context,
-                              listen: false,
-                            );
-                            final cached = bibleProvider.getCachedChapter(
-                              _translationId,
-                              chapterId,
-                            );
-                            final verses = _chapterContents[chapterId] ??
-                                cached?.verses ??
-                                [];
-                            final copyright = _chapterCopyrights[chapterId] ??
-                                cached?.copyright;
-                            final isCurrent = chapterId == widget.chapterId;
-                            if (verses.isEmpty) {
-                              return const Center(
-                                  child: CircularProgressIndicator());
-                            }
-
-                            return RepaintBoundary(
-                              child: Listener(
-                                onPointerSignal: (pointerSignal) {
-                                  if (pointerSignal is PointerScrollEvent) {
-                                    if (pointerSignal.scrollDelta.dx.abs() >
-                                        pointerSignal.scrollDelta.dy.abs()) {
-                                      GestureBinding
-                                          .instance.pointerSignalResolver
-                                          .register(pointerSignal, (event) {
-                                        _handleTrackpadHorizontalScroll(
-                                            event as PointerScrollEvent);
-                                      });
-                                    }
-                                  }
-                                },
-                                child: SelectableTextHighlight(
-                                  key: _getHighlightKey(chapterId),
-                                  chapterId: chapterId,
-                                  bookName: _bookName,
-                                  translationId: _translationId,
-                                  verses: verses,
-                                  copyright: copyright,
-                                  scrollController:
-                                      _getScrollController(chapterId),
-                                  style: theme.textTheme.bodyMedium!.copyWith(
-                                    fontSize: settingsProvider.readerFontSize,
-                                    height: settingsProvider.readerLineHeight,
-                                    fontFamily: settingsProvider.readerUseSerif
-                                        ? 'Georgia'
-                                        : null,
-                                  ),
-                                  currentVerseIndex:
-                                      (chapterId == widget.chapterId)
-                                          ? currentVerseIndex
-                                          : -1,
-                                  targetVerseId:
-                                      (isCurrent && widget.targetVerseId != null)
-                                          ? widget.targetVerseId
-                                          : null,
-                                ),
-                              ),
-                            );
-                          },
                         ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
                       ),
-                    ),
-                  ),
-                  if (isReading)
-                    Container(
-                      color: isDark ? const Color(0xFF1E1E1E) : Colors.grey[200],
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.pause),
-                            onPressed: _pauseReading,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xEE22262E)
+                            : const Color(0xEE1F242D),
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.18),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.skip_next),
-                            onPressed: _skipReading,
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.place_rounded,
+                            size: 15,
+                            color: Colors.amberAccent,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              _unlockedMapToastCount > 1
+                                  ? 'Map unlocked: ${_unlockedMapToast!.poi.title} (+${_unlockedMapToastCount - 1})'
+                                  : 'Map unlocked: ${_unlockedMapToast!.poi.title}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.chevron_right,
+                            size: 16,
+                            color: Colors.white70,
                           ),
                         ],
                       ),
                     ),
-                ],
-              ),
-              if (_unlockedMapToast != null)
-                Positioned(
-                  bottom: 14,
-                  left: 16,
-                  right: 16,
-                  child: Center(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(999),
-                        onTap: () {
-                          final unlocked = _unlockedMapToast;
-                          if (unlocked == null) return;
-                          _mapToastTimer?.cancel();
-                          setState(() {
-                            _unlockedMapToast = null;
-                          });
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => MapScreen(
-                                initialPathId: unlocked.path.id,
-                                initialPoiId: unlocked.poi.id,
-                              ),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 7,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? const Color(0xEE22262E)
-                                : const Color(0xEE1F242D),
-                            borderRadius: BorderRadius.circular(999),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.18),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.place_rounded,
-                                size: 15,
-                                color: Colors.amberAccent,
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  _unlockedMapToastCount > 1
-                                      ? 'Map unlocked: ${_unlockedMapToast!.poi.title} (+${_unlockedMapToastCount - 1})'
-                                      : 'Map unlocked: ${_unlockedMapToast!.poi.title}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.chevron_right,
-                                size: 16,
-                                color: Colors.white70,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              if (isSummaryLoading)
-                Container(
-                  color: Colors.black54,
-                  child: const Center(child: CircularProgressIndicator()),
-                ),
-            ],
-          ),
-        ),
-        bottomNavigationBar: BottomAppBar(
-          color: theme.scaffoldBackgroundColor,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: <Widget>[
-              // Active Bookmark Toggle
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: Icon(
-                      _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
-                      color: _isBookmarked ? Colors.amber[600] : null,
-                    ),
-                    onPressed: _toggleBookmark,
-                    tooltip: _isBookmarked ? 'Remove Bookmark' : 'Bookmark',
-                  ),
-                  Text(
-                    _isBookmarked ? 'Bookmarked' : 'Bookmark',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight:
-                          _isBookmarked ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-
-              IconButton(
-                icon: const Icon(Icons.arrow_circle_left, size: 40),
-                onPressed: () => _changePage(-1),
-                tooltip: 'Previous Chapter',
-              ),
-
-              InkWell(
-                onTap: _showChapterSelection,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8.0, vertical: 8.0),
-                  child: Text(
-                    chapterName,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
                   ),
                 ),
               ),
-
-              IconButton(
-                icon: const Icon(Icons.arrow_circle_right, size: 40),
-                onPressed: () => _changePage(1),
-                tooltip: 'Next Chapter',
-              ),
-
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.summarize),
-                    onPressed: _summarizeContent,
-                    tooltip: 'Summarize',
-                  ),
-                  const Text('Summarize', style: TextStyle(fontSize: 12)),
-                ],
-              ),
-            ],
-          ),
-        ),
-      );
+            ),
+          if (isSummaryLoading)
+            Container(
+              color: Colors.black54,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
+    );
   }
+
+  Widget _buildBottomBar(
+    BuildContext context,
+    ThemeData theme,
+    bool isDark,
+    Color fgColor,
+  ) {
+    return BottomAppBar(
+      color: theme.scaffoldBackgroundColor,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: <Widget>[
+          // Active Bookmark Toggle
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: Icon(
+                  _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                  color: _isBookmarked ? Colors.amber[600] : null,
+                ),
+                onPressed: _toggleBookmark,
+                tooltip: _isBookmarked ? 'Remove Bookmark' : 'Bookmark',
+              ),
+              Text(
+                _isBookmarked ? 'Bookmarked' : 'Bookmark',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight:
+                      _isBookmarked ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+
+          IconButton(
+            icon: const Icon(Icons.arrow_circle_left, size: 40),
+            onPressed: () => _changePage(-1),
+            tooltip: 'Previous Chapter',
+          ),
+
+          InkWell(
+            onTap: _showChapterSelection,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+              child: Text(
+                chapterName,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+
+          IconButton(
+            icon: const Icon(Icons.arrow_circle_right, size: 40),
+            onPressed: () => _changePage(1),
+            tooltip: 'Next Chapter',
+          ),
+
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.summarize),
+                onPressed: _summarizeContent,
+                tooltip: 'Summarize',
+              ),
+              const Text('Summarize', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+MarkdownStyleSheet _buildSummaryMarkdownStyle(ThemeData theme, bool isDark) {
+  final textColor = isDark ? Colors.white70 : Colors.black87;
+  final subtleBg = isDark
+      ? Colors.white.withValues(alpha: 0.06)
+      : Colors.black.withValues(alpha: 0.04);
+  final borderColor = isDark ? Colors.white38 : Colors.black38;
+
+  return MarkdownStyleSheet.fromTheme(theme).copyWith(
+    p: theme.textTheme.bodyMedium,
+    blockquote: theme.textTheme.bodyMedium!.copyWith(
+      color: textColor,
+      fontStyle: FontStyle.italic,
+    ),
+    blockquoteDecoration: BoxDecoration(
+      color: subtleBg,
+      borderRadius: BorderRadius.circular(4),
+      border: Border(
+        left: BorderSide(
+          color: borderColor,
+          width: 3.5,
+        ),
+      ),
+    ),
+    blockquotePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    code: theme.textTheme.bodyMedium!.copyWith(
+      backgroundColor: Colors.transparent,
+      fontFamily: 'monospace',
+    ),
+    codeblockDecoration: BoxDecoration(
+      color: subtleBg,
+      borderRadius: BorderRadius.circular(4),
+    ),
+    codeblockPadding: const EdgeInsets.all(8),
+    h1: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+    h2: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+    h3: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+  );
 }
 
 class SummaryModal extends StatelessWidget {
@@ -1622,11 +1794,19 @@ class SummaryModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return AlertDialog(
       title: const Text('Summary'),
       content: SizedBox(
         width: double.maxFinite,
-        child: SingleChildScrollView(child: MarkdownBody(data: content)),
+        child: SingleChildScrollView(
+          child: MarkdownBody(
+            data: content,
+            styleSheet: _buildSummaryMarkdownStyle(theme, isDark),
+          ),
+        ),
       ),
       actions: [
         TextButton(
@@ -1828,23 +2008,9 @@ class _StreamedSummaryModalState extends State<StreamedSummaryModal> {
                               children: [
                                 MarkdownBody(
                                   data: content,
-                                  styleSheet: MarkdownStyleSheet.fromTheme(
+                                  styleSheet: _buildSummaryMarkdownStyle(
                                     theme,
-                                  ).copyWith(
-                                    p: theme.textTheme.bodyMedium,
-                                    blockquote:
-                                        theme.textTheme.bodyMedium!.copyWith(
-                                      color: isDark
-                                          ? Colors.grey[300]
-                                          : Colors.grey[700],
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                    code: theme.textTheme.bodyMedium!.copyWith(
-                                      backgroundColor: Colors.transparent,
-                                    ),
-                                    codeblockDecoration: const BoxDecoration(
-                                      color: Colors.transparent,
-                                    ),
+                                    isDark,
                                   ),
                                 ),
                                 const SizedBox(height: 8),

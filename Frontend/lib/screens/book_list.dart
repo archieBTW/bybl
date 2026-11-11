@@ -87,8 +87,11 @@ class BookListScreen extends StatelessWidget {
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
                                 gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 4,
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount:
+                                      MediaQuery.of(context).size.width >= 900
+                                          ? 6
+                                          : 4,
                                   crossAxisSpacing: 10,
                                   mainAxisSpacing: 10,
                                   childAspectRatio: 2,

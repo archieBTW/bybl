@@ -11,6 +11,19 @@ import 'settings_screen.dart';
 import '../services/gemini_live_service.dart';
 
 class ChatScreen extends StatefulWidget {
+  final bool isEmbedded;
+  final VoidCallback? onCollapse;
+  final String? readingContext;
+  final String? readingPassageLabel;
+
+  const ChatScreen({
+    Key? key,
+    this.isEmbedded = false,
+    this.onCollapse,
+    this.readingContext,
+    this.readingPassageLabel,
+  }) : super(key: key);
+
   @override
   ChatScreenState createState() => ChatScreenState();
 }
@@ -29,6 +42,7 @@ class ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _chatService.readingContext = widget.readingContext;
     _geminiLive.onMessage = (text) {
       if (mounted) {
         setState(() {
@@ -47,6 +61,14 @@ class ChatScreenState extends State<ChatScreen> {
       }
     };
     _loadCurrentChat();
+  }
+
+  @override
+  void didUpdateWidget(ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.readingContext != widget.readingContext) {
+      _chatService.readingContext = widget.readingContext;
+    }
   }
   
   @override
@@ -276,10 +298,13 @@ class ChatScreenState extends State<ChatScreen> {
       return Scaffold(
         appBar: AppBar(
           backgroundColor: currentColor,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: effectiveFontColor),
-            onPressed: () => Navigator.pop(context),
-          ),
+          automaticallyImplyLeading: false,
+          leading: widget.isEmbedded
+              ? const Icon(Icons.auto_awesome, size: 20)
+              : IconButton(
+                  icon: Icon(Icons.arrow_back, color: effectiveFontColor),
+                  onPressed: () => Navigator.pop(context),
+                ),
           title: Text('Bible Companion', style: TextStyle(color: effectiveFontColor)),
         ),
         body: ApiKeySetupPrompt(
@@ -297,10 +322,13 @@ class ChatScreenState extends State<ChatScreen> {
       return Scaffold(
         appBar: AppBar(
           backgroundColor: currentColor,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: effectiveFontColor),
-            onPressed: () => Navigator.pop(context),
-          ),
+          automaticallyImplyLeading: false,
+          leading: widget.isEmbedded
+              ? const Icon(Icons.auto_awesome, size: 20)
+              : IconButton(
+                  icon: Icon(Icons.arrow_back, color: effectiveFontColor),
+                  onPressed: () => Navigator.pop(context),
+                ),
           title: Text('Bible Companion', style: TextStyle(color: effectiveFontColor)),
         ),
         body: const Center(child: CircularProgressIndicator()),
@@ -310,10 +338,13 @@ class ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: currentColor,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: effectiveFontColor),
-          onPressed: () => Navigator.pop(context),
-        ),
+        automaticallyImplyLeading: false,
+        leading: widget.isEmbedded
+            ? const Icon(Icons.auto_awesome, size: 20)
+            : IconButton(
+                icon: Icon(Icons.arrow_back, color: effectiveFontColor),
+                onPressed: () => Navigator.pop(context),
+              ),
         title: Text('Bible Companion', style: TextStyle(color: effectiveFontColor)),
         actions: [
           IconButton(
@@ -326,10 +357,49 @@ class ChatScreenState extends State<ChatScreen> {
             tooltip: 'New Chat',
             onPressed: _startNewChat,
           ),
+          if (widget.onCollapse != null)
+            IconButton(
+              icon: Icon(Icons.close, color: effectiveFontColor, size: 20),
+              tooltip: 'Collapse Companion',
+              onPressed: widget.onCollapse,
+            ),
         ],
       ),
       body: Column(
         children: [
+          if (widget.readingPassageLabel != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              color: settings.currentThemeMode == ThemeMode.dark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : Colors.black.withValues(alpha: 0.04),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.menu_book,
+                    size: 14,
+                    color: settings.currentThemeMode == ThemeMode.dark
+                        ? Colors.amberAccent
+                        : Colors.brown,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Reading: ${widget.readingPassageLabel}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: settings.currentThemeMode == ThemeMode.dark
+                            ? Colors.white70
+                            : Colors.black87,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: allMessages.isEmpty
                 ? Center(
@@ -387,53 +457,100 @@ class ChatScreenState extends State<ChatScreen> {
                                   bottomRight: Radius.circular(isUser ? 0 : 16),
                                 ),
                               ),
-                              child: MarkdownBody(
-                                data: content,
-                                selectable: true,
-                                styleSheet: MarkdownStyleSheet(
-                                  p: TextStyle(
-                                    color:
-                                        isUser ? settings.fontColor : Colors.white,
-                                    fontSize: 16,
-                                  ),
-                                  strong: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color:
-                                        isUser ? settings.fontColor : Colors.white,
-                                  ),
-                                  blockquote: TextStyle(
-                                    color: isUser
-                                        ? settings.fontColor
-                                        : Colors.white70,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                  blockquoteDecoration: BoxDecoration(
-                                    color: isUser
-                                        ? Colors.black12
-                                        : Colors.white10,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border(
-                                      left: BorderSide(
-                                        color: isUser
-                                            ? settings.fontColor ?? Colors.grey
-                                            : Colors.grey,
-                                        width: 4,
+                              child: Builder(
+                                builder: (context) {
+                                  final textColor = isUser
+                                      ? settings.fontColor
+                                      : Colors.white;
+                                  final subtleBg = isUser
+                                      ? Colors.black12
+                                      : Colors.white.withValues(alpha: 0.08);
+                                  final borderColor = isUser
+                                      ? settings.fontColor
+                                      : Colors.white38;
+
+                                  return MarkdownBody(
+                                    data: content,
+                                    selectable: true,
+                                    styleSheet: MarkdownStyleSheet(
+                                      p: TextStyle(
+                                        color: textColor,
+                                        fontSize: 16,
                                       ),
+                                      strong: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: textColor,
+                                      ),
+                                      em: TextStyle(
+                                        fontStyle: FontStyle.italic,
+                                        color: textColor,
+                                      ),
+                                      h1: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: textColor,
+                                      ),
+                                      h2: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: textColor,
+                                      ),
+                                      h3: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: textColor,
+                                      ),
+                                      a: TextStyle(
+                                        color: isUser
+                                            ? settings.fontColor
+                                            : Colors.lightBlueAccent,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                      listBullet: TextStyle(
+                                        color: textColor,
+                                        fontSize: 16,
+                                      ),
+                                      listBulletPadding:
+                                          const EdgeInsets.only(right: 4),
+                                      listIndent: 20.0,
+                                      blockquote: TextStyle(
+                                        color: isUser
+                                            ? settings.fontColor
+                                            : Colors.white70,
+                                        fontStyle: FontStyle.italic,
+                                        fontSize: 15,
+                                      ),
+                                      blockquoteDecoration: BoxDecoration(
+                                        color: subtleBg,
+                                        borderRadius:
+                                            BorderRadius.circular(4),
+                                        border: Border(
+                                          left: BorderSide(
+                                            color: borderColor,
+                                            width: 3.5,
+                                          ),
+                                        ),
+                                      ),
+                                      blockquotePadding:
+                                          const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      code: TextStyle(
+                                        color: textColor,
+                                        backgroundColor: Colors.transparent,
+                                        fontFamily: 'monospace',
+                                      ),
+                                      codeblockDecoration: BoxDecoration(
+                                        color: subtleBg,
+                                        borderRadius:
+                                            BorderRadius.circular(4),
+                                      ),
+                                      codeblockPadding:
+                                          const EdgeInsets.all(8),
                                     ),
-                                  ),
-                                  code: TextStyle(
-                                    color: isUser
-                                        ? settings.fontColor
-                                        : Colors.white,
-                                    backgroundColor: Colors.transparent,
-                                  ),
-                                  codeblockDecoration: BoxDecoration(
-                                    color: isUser
-                                        ? Colors.black12
-                                        : Colors.black26,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                ),
+                                  );
+                                },
                               ),
                             ),
                           ),
@@ -469,9 +586,11 @@ class ChatScreenState extends State<ChatScreen> {
                       reverse: true,
                       child: TextField(
                         controller: _controller,
-                        decoration: const InputDecoration(
-                          hintText: 'Ask something...',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          hintText: widget.readingPassageLabel != null
+                              ? 'Ask about ${widget.readingPassageLabel}...'
+                              : 'Ask something...',
+                          border: const OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.multiline,
                         maxLines: null,

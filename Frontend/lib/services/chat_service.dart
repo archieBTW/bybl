@@ -35,6 +35,9 @@ class ChatService {
   String? _currentChatId;
   String? get currentChatId => _currentChatId;
 
+  /// Optional active reading context (e.g. current book, chapter, and verses being read).
+  String? readingContext;
+
   List<Map<String, String>> get conversationHistory =>
       List.unmodifiable(_conversationHistory);
 
@@ -181,6 +184,15 @@ class ChatService {
       "Cite Bible books/chapters/verses (use lesser-known ones when helpful). "
       "Don't repeat the user's request at the top of your reply, don't label the response, and don't repeat your own answers.",
     );
+
+    if (readingContext != null && readingContext!.trim().isNotEmpty) {
+      buffer.write(
+        "\n\nCURRENT READING CONTEXT:\n"
+        "The user is actively reading the following Scripture passage in the Bible reader right now:\n"
+        "${readingContext!.trim()}\n"
+        "Keep this passage and chapter directly in mind. If the user refers to 'this passage', 'this chapter', 'this verse', 'what I'm reading', or asks questions about people, context, or themes in this text, ground your answers in this passage while providing broader theological insight.\n\n",
+      );
+    }
 
     if (effectiveUseMemory) {
       try {
